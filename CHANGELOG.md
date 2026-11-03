@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.0.1 - 2026-11-03
+
+### Fixed
+
+* release.yaml: a fragment-kind that is not a kind in the caller's .changie.yaml now fails before anything is written, naming the input, instead of later in changie batch. image.yaml: the header's Postgres and build-arg notes are wrapped as separate paragraphs.
+
 ## v1.0.0 - 2026-11-03
 
 ### Added
