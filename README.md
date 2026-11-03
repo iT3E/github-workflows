@@ -254,10 +254,28 @@ when nothing was released).
 
 Nothing happens without fragments. The version is Changie's next for
 `bump` (`auto`: the highest fragment kind), or `first-version` while
-`.changes/` has no `v*.md`. Callers trigger it on pushes to `main` that
-touch `.changes/unreleased/**`, plus `workflow_dispatch`, with a
-`concurrency` group so releases run one at a time. `GITHUB_TOKEN` can push
-the release commit only while no ruleset blocks it.
+`.changes/` has no `v*.md`. Callers trigger it on pushes to `main` (every
+push when `auto-fragment` is set, else those touching
+`.changes/unreleased/**`), plus `workflow_dispatch`, with a `concurrency`
+group so releases run one at a time. `GITHUB_TOKEN` can push the release
+commit only while no ruleset blocks it.
+
+**Automatic releases for bot PRs.** Renovate and Dependabot PRs carry no
+fragment (`changelog.yaml` waives it), so on their own they would never
+ship. With `auto-fragment` set, when no fragment is pending and a commit
+since the last `v*` tag was authored by `renovate[bot]` or
+`dependabot[bot]` and changed a path in `ship-paths`, the workflow adds
+one `auto-fragment-kind` fragment, `<auto-fragment>: <their commit
+subjects>`, and releases (a patch with the default `Fixed`). It looks at
+every commit since the tag, not only the pushed one, so a run that
+`concurrency` dropped is caught up by the next. A person's commit never
+triggers it (a human PR brings its own fragment), and neither does a bot
+commit outside `ship-paths`, such as a template update or a CI-only bump.
+The default `ship-paths` is every path except the docs (`*.md`),
+`.changes/`, `.github/` and the repo tooling app-repo-template manages
+(`.copier-answers.yml`, `.pre-commit-config.yaml`, `Taskfile.yml`,
+`bin/install-hooks`, `bin/privacy-check` and the dotfiles), which fits an
+app repo whose image is built from the rest.
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -267,6 +285,9 @@ the release commit only while no ruleset blocks it.
 | `changie-version` | string | `v1.26.0` (pinned) | Changie release |
 | `fragment-kind` | string | `Changed` | kind of the `fragment-body` fragment |
 | `fragment-body` | string | empty | add one fragment with this text before releasing; app-repo-template uses it to release when Renovate moves its pin of this repo |
+| `auto-fragment` | string | empty | text of the automatic fragment for bot commits that changed `ship-paths` (see above); empty: off |
+| `auto-fragment-kind` | string | `Fixed` | kind of that fragment |
+| `ship-paths` | string | every path but docs and repo tooling | git pathspecs, one per line (`:(exclude)` allowed), for what a release ships |
 
 ## Renovate presets
 
@@ -289,7 +310,10 @@ the dashboard) and extends three of its shared presets (`commitMessage`,
 
 - **The copier manager**, with template updates as their own
   `chore(template): update app-repo-template to vX.Y.Z` PRs, labeled
-  `renovate/template`, never automerged.
+  `renovate/template`, automerged once every check is green (every update
+  type: the template is our own and the PR runs the repo's CI on the new
+  callers; the rule is last, so the review tiers don't hold its 0.x
+  minors).
 - **Template-owned versions off**: no Renovate updates in the files the
   template manages (the caller workflows, `.pre-commit-config.yaml`,
   `Taskfile.yml`), and none for `iT3E/github-workflows` pins (workflow
@@ -329,7 +353,8 @@ never conflicts with a later template update:
 3. **Each app repo:** Renovate's copier manager opens
    `chore(template): update app-repo-template to vX.Y.Z`. That PR moves
    every caller pin and the preset `#vX.Y.Z` together, and the repo's own
-   CI runs the new workflows on it. It is merged by hand.
+   CI runs the new workflows on it. Renovate merges it once every check is
+   green. It changes only repo tooling, so it releases nothing.
 
 App repos never bump these pins themselves (`default.json5` turns that
 off). If they did, a repo's pin would differ from the template's old one,
@@ -367,10 +392,16 @@ once every check is green. Never push to `main`.
 3. app-repo-template's Renovate picks the tag up (see
    [How updates reach app repos](#how-updates-reach-app-repos)).
 
-Renovate PRs here (actions, pinned tools) carry no fragment and release
-nothing by themselves; they ship with the next release. To release them
-alone, run `Self: Release` by hand with a `note` (it becomes a `Fixed`
-fragment unless you pick another kind).
+Renovate PRs here automerge on the tiers of `renovate/default.json5`
+(actions minor/patch/digest, pinned tools minor/patch, hooks; majors and
+0.x minors wait for review). They carry no fragment, so `self-release.yaml`
+passes `auto-fragment`: a Renovate merge that changed a reusable workflow
+(not a `self-*` one) or a preset in `renovate/` releases a patch on its
+own, "Dependency updates: <subject>", and flows on to app-repo-template.
+One that only touches this repo's own CI, hooks or Taskfile releases
+nothing and ships with the next release. `Self: Release` can also be run
+by hand with a `note` (it becomes a `Fixed` fragment unless you pick
+another kind).
 
 ## Privacy
 

@@ -8,13 +8,16 @@ name: "Self: Release"
 # already in use (as app-template v0.2.1) when it moved here. No image, so
 # nothing is dispatched.
 #
-# Renovate PRs carry no fragment, so their bumps wait for the next release.
-# To ship them on their own, run this workflow by hand with a note: it
-# becomes the fragment.
+# Renovate PRs carry no fragment. When one changes what callers pin (the
+# reusable workflows, not the self-* ones, or the presets in renovate/),
+# auto-fragment adds a Fixed "Dependency updates" fragment and it releases
+# on its own, so the bump flows to app-repo-template and on to the app
+# repos. A Renovate PR that only touches this repo's own CI, hooks or
+# Taskfile releases nothing. Every push to main runs it (the reusable
+# workflow decides), and it can be run by hand with a note.
 on:
   push:
     branches: ["main"]
-    paths: [".changes/unreleased/**"]
   workflow_dispatch:
     inputs:
       bump:
@@ -51,3 +54,8 @@ jobs:
       build-workflow: ""
       fragment-kind: ${{ inputs.kind || 'Fixed' }}
       fragment-body: ${{ inputs.note || '' }}
+      auto-fragment: "Dependency updates"
+      ship-paths: |
+        .github/workflows
+        renovate
+        :(exclude).github/workflows/self-*

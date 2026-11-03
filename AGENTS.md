@@ -9,8 +9,10 @@ is public, and every app repo's CI runs code from it.
 - Every change goes through a PR, squash-merged, with every check green
   (`gh-merge-safe.sh <pr> iT3E/github-workflows`). Never push to `main`.
 - A PR adds a Changie fragment (`changie new`) or carries `skip-changelog`.
-  Merging a fragment tags a release (`self-release.yaml`). App repos get
-  it through app-repo-template (README "How updates reach app repos").
+  Merging a fragment tags a release (`self-release.yaml`). A Renovate
+  merge that changes a reusable workflow or a preset releases a patch by
+  itself (`auto-fragment`). App repos get it through app-repo-template
+  (README "How updates reach app repos").
 - The workflows without a `self-` prefix are called by app repos pinned to
   a release commit. Their file names, inputs, secrets, outputs and job
   names are an interface: adding an input with a default is minor,
