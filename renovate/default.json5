@@ -170,11 +170,13 @@
       // 0.x, so every minor would be reviewed. A template release is our
       // own, already CI-tested in app-repo-template, and this PR runs the
       // repo's CI on the new callers, so green checks are the gate. Every
-      // update type, majors included. No schedule override: the PR opens
-      // in the weekly window like the rest (or from the dashboard).
-      description: "app-repo-template releases: automerge when green",
+      // update type, majors included. Any time, not the weekly window: our
+      // own releases should land the same day (one CI run per repo per
+      // template release, a small cost on metered private-repo minutes).
+      description: "app-repo-template releases: automerge when green, any time",
       matchManagers: ["copier"],
       automerge: true,
+      schedule: ["at any time"],
     },
   ],
 }
