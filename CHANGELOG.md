@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.2.1 - 2026-11-03
+
+### Fixed
+
+* actionlint.yaml: the header comment says how to run the same check locally (task lint). No behavior change.
+
 ## v1.2.0 - 2026-11-03
 
 ### Added
