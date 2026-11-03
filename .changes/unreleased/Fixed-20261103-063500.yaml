@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  release.yaml: a fragment-kind that is not a kind in the caller's .changie.yaml now fails before anything is written, naming the input, instead of later in changie batch. image.yaml: the header's Postgres and build-arg notes are wrapped as separate paragraphs.
+time: 2026-11-03T06:35:00.000000000Z
