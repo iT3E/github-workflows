@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.0.2 - 2026-11-03
+
+### Fixed
+
+* renovate/default.json5: no digest pinning for versions in # renovate: comments. The regex has no digest to replace, so the "pin image postgres" update failed its branch (postgres-version in image.yaml, POSTGRES_VERSION in the rendered Taskfile).
+
 ## v1.0.1 - 2026-11-03
 
 ### Fixed
