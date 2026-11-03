@@ -6,6 +6,8 @@ name: "Self: Test"
 #   go       go.yaml on tests/go, Go from go.mod, then pinned with an
 #            extra-test-command
 #   python   python.yaml on tests/python with ruff and a test-command
+#   node     node.yaml on tests/node: every check on with node-version,
+#            then the defaults with node-version-file (.nvmrc)
 #   image    image.yaml on tests/image, with and without its Postgres
 #            service. Never pushed: push-main is false, and this workflow
 #            doesn't run on tags.
@@ -54,6 +56,31 @@ jobs:
       test-command: |
         python -m unittest -v
         python -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+
+  node:
+    name: node (all checks)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/node.yaml
+    with:
+      working-directory: tests/node
+      node-version: "24"
+      lint: true
+      format-check: true
+      test-command: |
+        test -f dist/greet.js
+        test "$(node -p 'process.versions.node.split(".")[0]')" = "24"
+
+  node-version-file:
+    name: node (.nvmrc, defaults)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/node.yaml
+    with:
+      working-directory: tests/node
+      node-version-file: .nvmrc
+      test-command: |
+        test "$(node -p 'process.versions.node.split(".")[0]')" = "$(tr -d 'v\n' < .nvmrc)"
 
   image:
     name: image (postgres ${{ matrix.postgres }})

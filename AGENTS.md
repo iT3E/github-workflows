@@ -17,7 +17,7 @@ is public, and every app repo's CI runs code from it.
   a release commit. Their file names, inputs, secrets, outputs and job
   names are an interface: adding an input with a default is minor,
   renaming, removing or changing a default is Breaking (a major release).
-- A change to a build workflow (`go`, `python`, `image`) gets a call in
+- A change to a build workflow (`go`, `python`, `node`, `image`) gets a call in
   `self-test.yaml` that exercises it, on the fixtures in `tests/`.
 - Keep every reusable workflow `workflow_call` only, starting from
   `permissions: {}`, with actions pinned `@<sha> # vX.Y.Z`

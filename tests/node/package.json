@@ -1,0 +1,15 @@
+{
+  "name": "example-node-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fixture for node.yaml (self-test.yaml).",
+  "type": "module",
+  "scripts": {
+    "lint": "node --check src/greet.js && node --check test/greet.test.js",
+    "test": "node --test",
+    "build": "node scripts/build.js"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

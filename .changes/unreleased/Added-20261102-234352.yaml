@@ -1,0 +1,3 @@
+kind: Added
+body: 'node.yaml: Node checks for npm app repos (e.g. Angular). npm ci, then the package''s lint, prettier --check, test and build scripts, each switchable, with node-version or node-version-file. renovate/node.json5: npm labels and scopes, lock file maintenance, the Angular packages and the Node runtime as groups, and automerge for patch/digest and non-0.x minors.'
+time: 2026-11-02T23:43:52.572750188-08:00
