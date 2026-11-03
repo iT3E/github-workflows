@@ -4,6 +4,7 @@ name: "Actionlint"
 # Reusable (workflow_call): actionlint, with shellcheck on run: blocks, over
 # the caller's workflows. One job, "actionlint". Callers trigger it only on
 # PRs that touch .github/workflows/, so most PRs never spend minutes on it.
+# Run the same check locally with `task lint` (Docker).
 on:
   workflow_call:
     inputs:
