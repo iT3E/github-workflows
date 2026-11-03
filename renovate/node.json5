@@ -1,0 +1,72 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // Node app repos (npm, e.g. Angular), on top of default.json5. Its review
+  // rules (majors, 0.x minors) don't overlap the automerge rules here.
+  // package-lock.json moves with every update, and lock file maintenance
+  // refreshes the transitive pins.
+  lockFileMaintenance: {
+    enabled: true,
+    automerge: true,
+  },
+  packageRules: [
+    // ------------------------------------------------------- labels, commits
+    // tnwks-ops' labels.json5 and semanticCommits.json5 have no npm rules.
+    {
+      matchDatasources: ["npm", "node-version"],
+      addLabels: ["renovate/node"],
+    },
+    {
+      matchDatasources: ["npm", "node-version"],
+      matchUpdateTypes: ["major"],
+      commitMessagePrefix: "feat(node)!: ",
+    },
+    {
+      matchDatasources: ["npm", "node-version"],
+      matchUpdateTypes: ["minor"],
+      semanticCommitType: "feat",
+      semanticCommitScope: "node",
+    },
+    {
+      matchDatasources: ["npm", "node-version"],
+      matchUpdateTypes: ["patch", "digest"],
+      semanticCommitType: "fix",
+      semanticCommitScope: "node",
+    },
+    {
+      matchUpdateTypes: ["lockFileMaintenance"],
+      semanticCommitType: "chore",
+      semanticCommitScope: "node",
+      addLabels: ["renovate/node"],
+    },
+    {
+      // The framework's packages are released together and must stay on one
+      // version; a split update breaks the build.
+      description: "Angular: framework, CLI and build packages together",
+      groupName: "Angular",
+      matchDatasources: ["npm"],
+      matchPackageNames: ["@angular/**", "@angular-devkit/**", "@schematics/angular", "angular-eslint", "@angular-eslint/**"],
+    },
+    {
+      // Node ships a new major every six months; the runtime CI sets up
+      // (.nvmrc) and the node build image should move together.
+      description: "Node runtime: .nvmrc and the node image",
+      groupName: "Node runtime",
+      matchDepNames: ["node"],
+    },
+    // ------------------------------------------------------------- automerge
+    {
+      description: "npm packages and base images: patch and digest",
+      matchManagers: ["npm", "dockerfile", "nvm"],
+      matchUpdateTypes: ["patch", "digest"],
+      automerge: true,
+    },
+    {
+      // 0.x minors can break at any time (zer0ver), so they stay manual.
+      description: "npm packages: minor, outside 0.x",
+      matchManagers: ["npm"],
+      matchUpdateTypes: ["minor"],
+      matchCurrentVersion: "!/^v?0\\./",
+      automerge: true,
+    },
+  ],
+}

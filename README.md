@@ -3,12 +3,12 @@
 Everything app repos run from another repo at CI time:
 
 - **Reusable workflows** (`on: workflow_call`) in
-  [`.github/workflows/`](.github/workflows): Go, Python, the image build,
+  [`.github/workflows/`](.github/workflows): Go, Python, Node, the image build,
   the privacy and secret scans, actionlint, the changelog check, labels and
   the Changie release. The files without a `self-` prefix are the ones to
   call.
 - **Renovate presets** in [`renovate/`](renovate): `default.json5` plus
-  `go.json5` or `python.json5`.
+  `go.json5`, `python.json5` or `node.json5`.
 
 App repos don't copy anything from here by hand. Their thin caller
 workflows and their `.github/renovate.json5` are rendered by the Copier
@@ -112,6 +112,29 @@ then `ruff check` and `ruff format --check` if enabled, then
 | `ruff-format` | boolean | `false` | run `ruff format --check` |
 | `ruff-version` | string | `0.17.3` (pinned) | ruff from PyPI |
 | `test-command` | string | empty | test script |
+
+### `node.yaml`: Node checks
+
+Job `check`. Caller grants `contents: read`. No secrets.
+
+`npm ci` (a `package-lock.json` is required), then the package's own
+scripts: `npm run lint` and `prettier --check .` if enabled, `npm test`
+and `npm run build` unless disabled, then `test-command`. Nothing is
+framework specific: an Angular app's `package.json` scripts run `ng
+lint`, `ng test --watch=false` and `ng build`. `npm test` must exit on
+its own (no watch mode). The format check uses the repo's own prettier,
+so it must be a devDependency.
+
+| Input | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `node-version` | string | `24` | setup-node version, unless `node-version-file` is set |
+| `node-version-file` | string | empty | file setup-node reads the version from (e.g. `.nvmrc`), relative to `working-directory` |
+| `working-directory` | string | `.` | where the checks run (the directory with `package.json`) |
+| `lint` | boolean | `false` | run `npm run lint` |
+| `format-check` | boolean | `false` | run `prettier --check .` |
+| `test` | boolean | `true` | run `npm test` |
+| `build` | boolean | `true` | run `npm run build` |
+| `test-command` | string | empty | extra test script, after the build |
 
 ### `image.yaml`: build, test and push the image
 
@@ -296,7 +319,7 @@ An app repo's `.github/renovate.json5` (rendered by app-repo-template):
 ```json5
 extends: [
   "github>iT3E/github-workflows//renovate/default.json5#vX.Y.Z",
-  "github>iT3E/github-workflows//renovate/go.json5#vX.Y.Z",   // or python.json5
+  "github>iT3E/github-workflows//renovate/go.json5#vX.Y.Z",   // or python.json5, node.json5
 ],
 ```
 
@@ -336,6 +359,13 @@ and `python` scopes, `constraints.txt` as a requirements file, automerge
 for package and base image patch/digest and non-0.x package minors, and
 Python image minors reviewed.
 
+[`renovate/node.json5`](renovate/node.json5): `renovate/node` labels and
+`node` scopes, lock file maintenance (automerged), the Angular packages
+(`@angular/*`, `@angular-devkit/*`, `@schematics/angular`, angular-eslint)
+as one "Angular" group, `.nvmrc` and the `node` image as one "Node
+runtime" group, and automerge for package and base image patch/digest and
+non-0.x package minors.
+
 ## How updates reach app repos
 
 A release here reaches each app repo as one Renovate PR, in two hops, and
@@ -367,7 +397,9 @@ Every PR runs, with the workflows from the PR itself (local paths):
 
 - `Self: Test`: `go.yaml` on [`tests/go`](tests/go) (Go from `go.mod`, and
   pinned with an `extra-test-command`), `python.yaml` on
-  [`tests/python`](tests/python) (ruff and a test command), and
+  [`tests/python`](tests/python) (ruff and a test command), `node.yaml` on
+  [`tests/node`](tests/node) (every check with `node-version`, then the
+  defaults with `node-version-file`), and
   `image.yaml` on [`tests/image`](tests/image) with and without its
   Postgres service. The test image is never pushed.
 - `Self: Lint`: yamllint, shellcheck on `bin/*`, a check that every

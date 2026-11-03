@@ -1,0 +1,97 @@
+---
+name: "Node"
+
+# Reusable (workflow_call): the host-side Node checks. One job, "check":
+# npm ci (package-lock.json is required), then the package's own scripts:
+# `npm run lint` and `prettier --check .` when enabled, `npm test` and
+# `npm run build` unless disabled, then test-command if set. Nothing here
+# is framework specific: an Angular app's scripts run `ng lint`, `ng test`
+# and `ng build`. Repos whose tests need the built image run them in
+# image.yaml's test-command instead.
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node version for setup-node. Ignored when node-version-file is set."
+        type: string
+        default: "24"
+      node-version-file:
+        description: "File setup-node reads the version from (e.g. .nvmrc), relative to working-directory. Empty: use node-version."
+        type: string
+        default: ""
+      working-directory:
+        description: "Directory the checks run in (the one with package.json)."
+        type: string
+        default: "."
+      lint:
+        description: "Run `npm run lint`."
+        type: boolean
+        default: false
+      format-check:
+        description: "Run `prettier --check .` with the repo's own prettier (a devDependency)."
+        type: boolean
+        default: false
+      test:
+        description: "Run `npm test`. The script must exit on its own (no watch mode)."
+        type: boolean
+        default: true
+      build:
+        description: "Run `npm run build`."
+        type: boolean
+        default: true
+      test-command:
+        description: "Extra test command (bash, in working-directory), after the build. Empty: none."
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version-file == '' && inputs.node-version || '' }}
+          node-version-file: ${{ inputs.node-version-file != '' && format('{0}/{1}', inputs.working-directory, inputs.node-version-file) || '' }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: npm ci
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        if: inputs.lint
+        run: npm run lint
+
+      - name: Format check
+        if: inputs.format-check
+        run: npx --no-install prettier --check .
+
+      - name: Test
+        if: inputs.test
+        run: npm test
+
+      - name: Build
+        if: inputs.build
+        run: npm run build
+
+      - name: Extra tests
+        if: inputs.test-command != ''
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: |
+          printf '%s\n' "$TEST_COMMAND" > "$RUNNER_TEMP/test.sh"
+          bash -euo pipefail "$RUNNER_TEMP/test.sh"
