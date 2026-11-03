@@ -102,9 +102,9 @@
       enabled: false,
     },
     {
-      // Its own PR (never grouped), its own label, reviewed by hand: a
-      // template release changes CI itself, so a green run alone isn't
-      // enough to merge it.
+      // Its own PR (never grouped), with its own label. It automerges once
+      // every check is green (the rule at the bottom), since the repo's own
+      // CI runs the new workflows on the PR itself.
       description: "app-repo-template releases (copier update)",
       matchManagers: ["copier"],
       addLabels: ["renovate/template"],
@@ -112,7 +112,6 @@
       semanticCommitScope: "template",
       commitMessageTopic: "app-repo-template",
       groupName: null,
-      automerge: false,
     },
     // ------------------------------------------------------------- automerge
     // Same tiers as tnwks-ops' autoMerge.json5, for the managers every app
@@ -164,6 +163,18 @@
       matchUpdateTypes: ["minor"],
       matchCurrentVersion: "/^v?0\\./",
       automerge: false,
+    },
+    // ------------------------------------------------------ our own releases
+    {
+      // Last, so the review rules above don't hold it: the template is
+      // 0.x, so every minor would be reviewed. A template release is our
+      // own, already CI-tested in app-repo-template, and this PR runs the
+      // repo's CI on the new callers, so green checks are the gate. Every
+      // update type, majors included. No schedule override: the PR opens
+      // in the weekly window like the rest (or from the dashboard).
+      description: "app-repo-template releases: automerge when green",
+      matchManagers: ["copier"],
+      automerge: true,
     },
   ],
 }

@@ -17,11 +17,24 @@ name: "Release"
 # Renovate PR moved its github-workflows pin, so the bump ships as a
 # template release.
 #
+# auto-fragment releases what dependency bots merged. When no fragment is
+# pending, and a commit since the last v* tag was authored by renovate[bot]
+# or dependabot[bot] and changed a file in ship-paths, it adds one
+# auto-fragment-kind fragment: "<auto-fragment>: <their subjects>". Bot PRs
+# carry no fragment (changelog.yaml waives it), so without this their
+# updates never ship. A person's commit never triggers it: a human PR
+# brings its own fragment. ship-paths are git pathspecs for what the repo
+# ships (the image, or the files consumers pin); the default is every path
+# except the repo tooling app-repo-template manages and the docs, so a
+# template update or a CI-only bump releases nothing. The check covers every
+# commit since the last tag, not just the pushed one, so a release run that
+# concurrency dropped (only one waits) is caught up by the next.
+#
 # The version is changie's next for bump (auto: the highest fragment kind),
 # or first-version while .changes/ has no v*.md yet.
 #
-# The caller triggers on pushes to main touching .changes/unreleased/** and
-# on workflow_dispatch, runs one release at a time (concurrency), and grants
+# The caller triggers on pushes to main (every path when auto-fragment is
+# set, else those touching .changes/unreleased/**) and on workflow_dispatch, runs one release at a time (concurrency), and grants
 # contents: write and, with build-workflow, actions: write. GITHUB_TOKEN can
 # push the release commit only while main has no ruleset that blocks it.
 on:
@@ -52,6 +65,34 @@ on:
         description: "Add a fragment with this text before releasing. Empty: none."
         type: string
         default: ""
+      auto-fragment:
+        description: "Text of the fragment added when bot commits since the last tag changed ship-paths and no fragment is pending. Empty: off."
+        type: string
+        default: ""
+      auto-fragment-kind:
+        description: "Kind of the auto-fragment fragment (a kind in the caller's .changie.yaml)."
+        type: string
+        default: "Fixed"
+      ship-paths:
+        description: "Git pathspecs (one per line) for what a release ships; auto-fragment looks only at these."
+        type: string
+        default: |
+          .
+          :(exclude).changes
+          :(exclude).github
+          :(exclude)*.md
+          :(exclude).copier-answers.yml
+          :(exclude).betterleaks.toml
+          :(exclude).changie.yaml
+          :(exclude).editorconfig
+          :(exclude).gitattributes
+          :(exclude).gitignore
+          :(exclude).golangci.yml
+          :(exclude).pre-commit-config.yaml
+          :(exclude).yamllint.yaml
+          :(exclude)Taskfile.yml
+          :(exclude)bin/install-hooks
+          :(exclude)bin/privacy-check
     outputs:
       version:
         description: "The released version, or empty when nothing was released."
@@ -95,6 +136,64 @@ jobs:
             echo "kind: ${KIND}"
             echo "body: |-"
             printf '%s\n' "$BODY" | sed 's/^/  /'
+            echo "time: $(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)"
+          } > "$file"
+          echo "Added $file:"; cat "$file"
+
+      - name: Add auto-fragment
+        if: inputs.auto-fragment != ''
+        env:
+          KIND: ${{ inputs.auto-fragment-kind }}
+          BODY: ${{ inputs.auto-fragment }}
+          SHIP_PATHS: ${{ inputs.ship-paths }}
+        run: |
+          if ! [[ "$KIND" =~ ^[A-Za-z]+$ ]] || ! grep -qE "^\s*- label: ${KIND}\s*$" .changie.yaml; then
+            echo "::error::auto-fragment-kind '$KIND' is not a kind in .changie.yaml"
+            exit 1
+          fi
+          if compgen -G ".changes/unreleased/*.yaml" > /dev/null; then
+            echo "Fragments pending; they cover this release."
+            exit 0
+          fi
+          last="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)"
+          if [ -z "$last" ]; then
+            echo "No release yet; the first one needs a fragment."
+            exit 0
+          fi
+          paths=()
+          while IFS= read -r p; do
+            if [ -n "$p" ]; then paths+=("$p"); fi
+          done <<< "$SHIP_PATHS"
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo "::error::ship-paths is empty"
+            exit 1
+          fi
+          subjects=()
+          while IFS=$'\t' read -r sha author subject; do
+            case "$author" in
+              "renovate[bot]" | "dependabot[bot]") ;;
+              *) continue ;;
+            esac
+            changed="$(git diff-tree --no-commit-id --name-only -r "$sha" -- "${paths[@]}")"
+            if [ -n "$changed" ]; then
+              echo "${sha:0:8} ships: $(echo "$changed" | paste -sd ' ')"
+              subjects+=("$subject")
+            else
+              echo "${sha:0:8} ships nothing: ${subject}"
+            fi
+          done < <(git log --no-merges --reverse --format='%H%x09%an%x09%s' "${last}..HEAD")
+          if [ "${#subjects[@]}" -eq 0 ]; then
+            echo "No bot commit since ${last} changed ship-paths; nothing to release."
+            exit 0
+          fi
+          note="${BODY}: $(printf '%s; ' "${subjects[@]}")"
+          note="${note%; }"
+          mkdir -p .changes/unreleased
+          file=".changes/unreleased/${KIND}-auto-$(date -u +%Y%m%d-%H%M%S).yaml"
+          {
+            echo "kind: ${KIND}"
+            echo "body: |-"
+            printf '%s\n' "$note" | sed 's/^/  /'
             echo "time: $(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)"
           } > "$file"
           echo "Added $file:"; cat "$file"

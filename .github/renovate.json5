@@ -2,8 +2,10 @@
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   // This repo: the same base app repos get, from its own default branch.
   // Renovate keeps the actions and the # renovate: pinned tool versions in
-  // the reusable workflows current. Its PRs carry no Changie fragment, so
-  // they ship with the next release (README "Releasing").
+  // the reusable workflows current, and its PRs automerge on the tiers in
+  // default.json5. They carry no Changie fragment: self-release.yaml adds
+  // one when a merge changed a reusable workflow or a preset, so that
+  // merge releases a patch (README "Releasing").
   extends: ["github>iT3E/github-workflows//renovate/default.json5"],
   // Public repo: Actions minutes are free, so any day, not only Monday
   // mornings like the private app repos.
