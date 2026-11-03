@@ -1,0 +1,20 @@
+---
+name: "Self: Sync labels"
+
+# This repo's own use of the reusable workflow next to it (a local path, so
+# a PR runs the version it changes).
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths: [".github/labels.yaml"]
+
+permissions: {}
+
+jobs:
+  labels:
+    name: sync-labels
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/sync-labels.yaml

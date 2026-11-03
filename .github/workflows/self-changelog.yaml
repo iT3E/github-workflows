@@ -1,0 +1,17 @@
+---
+name: "Self: Changelog"
+
+# This repo's own use of the reusable workflow next to it (a local path, so
+# a PR runs the version it changes).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions: {}
+
+jobs:
+  changelog:
+    name: changelog
+    permissions:
+      contents: read
+    uses: ./.github/workflows/changelog.yaml

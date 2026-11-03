@@ -1,0 +1,86 @@
+---
+name: "Self: Test"
+
+# Runs the build workflows (local paths, so a PR runs the version it
+# changes) on the fixtures in tests/, the way app repos call them:
+#   go       go.yaml on tests/go, Go from go.mod, then pinned with an
+#            extra-test-command
+#   python   python.yaml on tests/python with ruff and a test-command
+#   image    image.yaml on tests/image, with and without its Postgres
+#            service. Never pushed: push-main is false, and this workflow
+#            doesn't run on tags.
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions: {}
+
+concurrency:
+  group: self-test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    name: go (go.mod)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/go.yaml
+    with:
+      working-directory: tests/go
+
+  go-pinned:
+    name: go (pinned)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/go.yaml
+    with:
+      working-directory: tests/go
+      go-version: "1.25"
+      extra-test-command: |
+        go test -run Example ./...
+        test "$(go env GOVERSION | cut -d. -f1-2)" = "go1.25"
+
+  python:
+    name: python
+    permissions:
+      contents: read
+    uses: ./.github/workflows/python.yaml
+    with:
+      working-directory: tests/python
+      python-version: "3.12"
+      ruff-check: true
+      ruff-format: true
+      test-command: |
+        python -m unittest -v
+        python -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+
+  image:
+    name: image (postgres ${{ matrix.postgres }})
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [false, true]
+    permissions:
+      contents: read
+      # what image.yaml declares; nothing is pushed from here
+      packages: write
+    uses: ./.github/workflows/image.yaml
+    with:
+      image: ghcr.io/it3e/github-workflows-test
+      context: tests/image
+      dockerfile: tests/image/Dockerfile
+      push-main: false
+      postgres: ${{ matrix.postgres }}
+      test-command: |
+        test "$(docker run --rm "$IMAGE_REF" ok)" = "ok"
+        test "$(docker run --rm --entrypoint id "$IMAGE_REF" -u)" = "1000"
+        if [ -n "$TEST_POSTGRES_URL" ]; then
+          docker run --rm --network host postgres:18 psql "$TEST_POSTGRES_URL" -tAc 'select 1' | grep -qx 1
+          echo "Postgres service reachable"
+        else
+          if timeout 3 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null; then
+            echo "::error::a Postgres service runs without postgres: true"; exit 1
+          fi
+          echo "No Postgres service, as expected"
+        fi

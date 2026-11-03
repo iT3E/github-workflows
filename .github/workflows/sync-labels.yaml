@@ -1,0 +1,40 @@
+---
+name: "Sync labels"
+
+# Reusable (workflow_call): make the caller's labels match its labels file
+# (EndBug/label-sync). One job, "sync-labels". With delete-other-labels,
+# labels not in the file are deleted. The caller grants issues: write
+# (creating, editing and deleting labels needs it).
+on:
+  workflow_call:
+    inputs:
+      config-file:
+        description: "Labels file in the caller repo."
+        type: string
+        default: ".github/labels.yaml"
+      delete-other-labels:
+        description: "Delete labels that aren't in the file."
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  labels:
+    name: sync-labels
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Sync labels
+        uses: EndBug/label-sync@52074158190acb45f3077f9099fea818aa43f97a # v2.3.3
+        with:
+          config-file: ${{ inputs.config-file }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          delete-other-labels: ${{ inputs.delete-other-labels }}

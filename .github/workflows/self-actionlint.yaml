@@ -1,0 +1,19 @@
+---
+name: "Self: Actionlint"
+
+# This repo's own use of the reusable workflow next to it (a local path, so
+# a PR runs the version it changes). Every PR here touches workflows, or
+# could break their callers, so there is no paths: filter.
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions: {}
+
+jobs:
+  actionlint:
+    name: actionlint
+    permissions:
+      contents: read
+    uses: ./.github/workflows/actionlint.yaml

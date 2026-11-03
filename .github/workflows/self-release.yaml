@@ -1,0 +1,53 @@
+---
+name: "Self: Release"
+
+# This repo's own use of the reusable workflow next to it (a local path, so
+# a PR runs the version it changes).
+# Releasing: merge a PR with a Changie fragment, and this tags vX.Y.Z
+# (README "Releasing"). The first release is v1.0.0: the interface was
+# already in use (as app-template v0.2.1) when it moved here. No image, so
+# nothing is dispatched.
+#
+# Renovate PRs carry no fragment, so their bumps wait for the next release.
+# To ship them on their own, run this workflow by hand with a note: it
+# becomes the fragment.
+on:
+  push:
+    branches: ["main"]
+    paths: [".changes/unreleased/**"]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (auto follows the fragment kinds)"
+        type: choice
+        default: auto
+        options: [auto, patch, minor, major]
+      note:
+        description: "Release note to add as a fragment (empty: none)"
+        type: string
+        default: ""
+      kind:
+        description: "Kind of that fragment"
+        type: choice
+        default: Fixed
+        options: [Fixed, Security, Changed, Added]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    permissions:
+      contents: write
+      actions: write
+    uses: ./.github/workflows/release.yaml
+    with:
+      bump: ${{ inputs.bump || 'auto' }}
+      first-version: v1.0.0
+      build-workflow: ""
+      fragment-kind: ${{ inputs.kind || 'Fixed' }}
+      fragment-body: ${{ inputs.note || '' }}

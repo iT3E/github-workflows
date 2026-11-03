@@ -1,0 +1,27 @@
+---
+# This repo's own hooks (app repos get theirs from app-repo-template).
+# Install once per clone: task precommit:init   (bin/install-hooks)
+fail_fast: false
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
+repos:
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: v1.9.0
+    hooks:
+      - id: betterleaks
+  - repo: local
+    hooks:
+      # This repo is public: the tnwks-ops denylist on the staged files,
+      # your git identity and the commit message.
+      - id: privacy-check
+        name: privacy-check
+        entry: bin/privacy-check --cached
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: privacy-check-message
+        name: privacy-check (commit message)
+        entry: bin/privacy-check --message
+        language: system
+        stages: [commit-msg]
+        always_run: true

@@ -1,0 +1,29 @@
+---
+name: "Labeler"
+
+# Reusable (workflow_call): area/* labels on a PR from the paths it changes
+# (actions/labeler, the caller's config). One job, "labeler". The caller
+# grants pull-requests: write.
+on:
+  workflow_call:
+    inputs:
+      configuration-path:
+        description: "Labeler config in the caller repo."
+        type: string
+        default: ".github/labeler.yaml"
+
+permissions: {}
+
+jobs:
+  labeler:
+    name: labeler
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Labeler
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          configuration-path: ${{ inputs.configuration-path }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}

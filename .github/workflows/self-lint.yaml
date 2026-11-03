@@ -1,0 +1,76 @@
+---
+name: "Self: Lint"
+
+# The repo's own lint, on every PR and push to main:
+#   lint      yamllint; shellcheck on bin/*; every reusable workflow is
+#             workflow_call only, starts from permissions: {}, and pins
+#             third-party actions to a commit SHA.
+#   renovate  renovate-config-validator on the presets in renovate/ and
+#             this repo's .github/renovate.json5, as repo configs.
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions: {}
+
+env:
+  # renovate: datasource=pypi depName=yamllint
+  YAMLLINT_VERSION: "1.38.0"
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: "44.206.2"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: yamllint
+        run: |
+          pipx run "yamllint==${YAMLLINT_VERSION}" -c .yamllint.yaml \
+            .github .yamllint.yaml .changie.yaml .pre-commit-config.yaml Taskfile.yml
+
+      - name: shellcheck
+        run: shellcheck bin/*
+
+      # The files app repos call: everything in .github/workflows/ except
+      # this repo's own self-*.yaml.
+      - name: Reusable workflows
+        run: |
+          rc=0
+          for f in .github/workflows/*.yaml; do
+            case "$(basename "$f")" in self-*) continue ;; esac
+            if ! grep -q '^  workflow_call:' "$f" || [ "$(grep -cE '^  [a-z_]+:' <(sed -n '/^on:/,/^[a-z]/p' "$f"))" -ne 1 ]; then
+              echo "::error file=$f::a reusable workflow has exactly one trigger, workflow_call"; rc=1
+            fi
+            if ! grep -qx 'permissions: {}' "$f"; then
+              echo "::error file=$f::a reusable workflow starts from permissions: {}"; rc=1
+            fi
+            if grep -nE '^\s*(- )?uses: [^.][^@]*(@[^ ]*)?\s*(#.*)?$' "$f" | grep -vE 'uses: [^@ ]+@[0-9a-f]{40} # v' ; then
+              echo "::error file=$f::actions must be pinned as @<40-hex sha> # vX.Y.Z"; rc=1
+            fi
+          done
+          exit "$rc"
+
+  renovate:
+    name: renovate-config
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: renovate-config-validator
+        run: |
+          npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator --strict --no-global \
+            renovate/*.json5 .github/renovate.json5

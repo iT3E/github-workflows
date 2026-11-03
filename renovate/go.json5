@@ -1,0 +1,54 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // Go app repos, on top of default.json5. Its review rules (majors, 0.x
+  // minors) don't overlap the automerge rules here.
+  // gomod has no lock file maintenance.
+  postUpdateOptions: ["gomodTidy", "gomodUpdateImportPaths"],
+  packageRules: [
+    // ------------------------------------------------------- labels, commits
+    // tnwks-ops' labels.json5 and semanticCommits.json5 have no Go rules.
+    {
+      matchDatasources: ["go", "golang-version"],
+      addLabels: ["renovate/go"],
+    },
+    {
+      matchDatasources: ["go", "golang-version"],
+      matchUpdateTypes: ["major"],
+      commitMessagePrefix: "feat(go)!: ",
+    },
+    {
+      matchDatasources: ["go", "golang-version"],
+      matchUpdateTypes: ["minor"],
+      semanticCommitType: "feat",
+      semanticCommitScope: "go",
+    },
+    {
+      matchDatasources: ["go", "golang-version"],
+      matchUpdateTypes: ["patch", "digest"],
+      semanticCommitType: "fix",
+      semanticCommitScope: "go",
+    },
+    {
+      // The go directive in go.mod and the golang build image move together;
+      // CI's setup-go reads the version from go.mod.
+      description: "Go toolchain: go.mod's go directive and the golang build image",
+      groupName: "Go toolchain",
+      matchDepNames: ["go", "golang"],
+    },
+    // ------------------------------------------------------------- automerge
+    {
+      description: "Go modules and base images: patch and digest",
+      matchManagers: ["gomod", "dockerfile"],
+      matchUpdateTypes: ["patch", "digest"],
+      automerge: true,
+    },
+    {
+      // 0.x minors can break at any time (zer0ver), so they stay manual.
+      description: "Go modules and base images: minor, outside 0.x",
+      matchManagers: ["gomod", "dockerfile"],
+      matchUpdateTypes: ["minor"],
+      matchCurrentVersion: "!/^v?0\\./",
+      automerge: true,
+    },
+  ],
+}

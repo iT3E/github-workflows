@@ -1,0 +1,35 @@
+---
+name: "Actionlint"
+
+# Reusable (workflow_call): actionlint, with shellcheck on run: blocks, over
+# the caller's workflows. One job, "actionlint". Callers trigger it only on
+# PRs that touch .github/workflows/, so most PRs never spend minutes on it.
+on:
+  workflow_call:
+    inputs:
+      actionlint-version:
+        description: "actionlint release (container tag, with or without the v)."
+        type: string
+        # renovate: datasource=github-releases depName=rhysd/actionlint
+        default: "v1.7.12"
+
+permissions: {}
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        env:
+          ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            "rhysd/actionlint:${ACTIONLINT_VERSION#v}" -color

@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  First release: the reusable workflows (Go, Python, image, privacy, privacy-text, secret scan, actionlint, changelog, labeler, sync-labels, release) and the Renovate presets (default, go, python), moved from iT3E/app-template v0.2.1 with the same names, inputs and jobs. release.yaml gains fragment-kind and fragment-body.
+time: 2026-11-03T06:00:00.000000000Z
