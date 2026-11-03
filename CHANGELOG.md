@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.3.0 - 2026-11-03
+
+### Changed
+
+* renovate/default.json5: app-repo-template update PRs open and automerge at any time instead of the weekly window, so template releases reach app repos the same day.
+
 ## v1.2.1 - 2026-11-03
 
 ### Fixed

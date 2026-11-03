@@ -1,3 +1,0 @@
-kind: Changed
-body: "renovate/default.json5: app-repo-template update PRs open and automerge at any time instead of the weekly window, so template releases reach app repos the same day."
-time: 2026-11-03T00:40:00-08:00
