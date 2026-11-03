@@ -140,6 +140,14 @@
       automerge: true,
     },
     {
+      // A # renovate: comment pins a plain tag (postgres "18"), and the
+      // regex captures no digest, so docker:pinDigests' "pin" update can't
+      // be written and fails the branch.
+      description: "Versions in # renovate: comments: no digest pinning",
+      matchManagers: ["custom.regex"],
+      pinDigests: false,
+    },
+    {
       description: "pre-commit hooks: minor, patch and digest",
       matchManagers: ["pre-commit"],
       matchUpdateTypes: ["minor", "patch", "digest"],

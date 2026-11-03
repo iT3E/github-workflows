@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  renovate/default.json5: no digest pinning for versions in # renovate: comments. The regex has no digest to replace, so the "pin image postgres" update failed its branch (postgres-version in image.yaml, POSTGRES_VERSION in the rendered Taskfile).
+time: 2026-11-03T06:50:00.000000000Z
