@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.1.0 - 2026-11-03
+
+### Added
+
+* release.yaml: auto-fragment, auto-fragment-kind and ship-paths inputs. With auto-fragment set, a release with no pending fragment still happens when a renovate[bot] or dependabot[bot] commit since the last tag changed ship-paths (default: everything but docs and template-managed repo tooling). renovate/default.json5: app-repo-template (copier) PRs automerge once every check is green, every update type. This repo releases a patch by itself when a Renovate merge changes a reusable workflow or a preset.
+
 ## v1.0.2 - 2026-11-03
 
 ### Fixed
