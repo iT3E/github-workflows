@@ -20,7 +20,9 @@ name: "Image"
 # test-command runs against a local build before the push; $IMAGE_REF is its
 # tag. With postgres: true a throwaway Postgres (trust auth, user and
 # database postgres) runs as a service on 127.0.0.1:5432, and
-# $TEST_POSTGRES_URL points at it; containers reach it with --network host. Build args VERSION (the metadata version: 1.2.3, main or pr-<n>) and
+# $TEST_POSTGRES_URL points at it; containers reach it with --network host.
+#
+# Build args VERSION (the metadata version: 1.2.3, main or pr-<n>) and
 # REVISION (the commit) are always passed, plus build-args.
 on:
   workflow_call:

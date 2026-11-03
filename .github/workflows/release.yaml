@@ -84,8 +84,9 @@ jobs:
           KIND: ${{ inputs.fragment-kind }}
           BODY: ${{ inputs.fragment-body }}
         run: |
-          if ! [[ "$KIND" =~ ^[A-Za-z]+$ ]]; then
-            echo "::error::fragment-kind must be one word, not '$KIND'"
+          # Fail here, naming the input, rather than later in changie batch.
+          if ! [[ "$KIND" =~ ^[A-Za-z]+$ ]] || ! grep -qE "^\s*- label: ${KIND}\s*$" .changie.yaml; then
+            echo "::error::fragment-kind '$KIND' is not a kind in .changie.yaml"
             exit 1
           fi
           mkdir -p .changes/unreleased
