@@ -1,0 +1,25 @@
+---
+name: "Self: Privacy"
+
+# This repo's own use of the reusable workflow next to it (a local path, so
+# a PR runs the version it changes).
+# This repo is public; a fork PR has no PRIVACY_TERMS, so it warns
+# instead of failing (privacy-text and the push to main still check).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: ["main"]
+
+permissions: {}
+
+jobs:
+  privacy:
+    name: privacy
+    permissions:
+      contents: read
+    uses: ./.github/workflows/privacy.yaml
+    with:
+      allow-missing-terms: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
+    secrets:
+      PRIVACY_TERMS: ${{ secrets.PRIVACY_TERMS }}

@@ -1,0 +1,75 @@
+---
+name: "Privacy"
+
+# Reusable (workflow_call): the denylist check (the caller's
+# bin/privacy-check) on every tracked file and path, the commits the event
+# adds (messages, author and committer identities), and the PR title and
+# body. One job, "privacy".
+#
+# The list is the caller's PRIVACY_TERMS secret, copied from tnwks-ops
+# (`task privacy:sync` in the caller). Hits print as "term #N: path:line"
+# without the matched text. Comments and reviews are privacy-text.yaml.
+# Exceptions: the caller's .github/privacy-allow (files only).
+#
+# Commit range: a PR checks base..head; a push to main checks before..HEAD
+# (HEAD~1..HEAD for a new branch); a v* tag checks the whole history it
+# ships.
+on:
+  workflow_call:
+    inputs:
+      allow-missing-terms:
+        description: "Warn and pass when PRIVACY_TERMS is missing (fork PRs on a public repo). Default: fail."
+        type: boolean
+        default: false
+    secrets:
+      PRIVACY_TERMS:
+        required: false
+
+permissions: {}
+
+jobs:
+  privacy:
+    name: privacy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check
+        env:
+          PRIVACY_TERMS: ${{ secrets.PRIVACY_TERMS }}
+          ALLOW_MISSING: ${{ inputs.allow-missing-terms }}
+          # A bot's PR body is third-party text (Renovate's release notes
+          # name upstream contributors), so only its title counts.
+          PRIVACY_EXTRA_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.user.type != 'Bot' && github.event.pull_request.body || '' }}
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ -z "${PRIVACY_TERMS}" ]; then
+            if [ "$ALLOW_MISSING" = "true" ]; then
+              echo "::warning::PRIVACY_TERMS is not available to this run; skipped"
+              exit 0
+            fi
+            echo "::error::PRIVACY_TERMS is not available to this run"
+            exit 1
+          fi
+          if [ "$EVENT" = "pull_request" ] || [ "$EVENT" = "pull_request_target" ]; then
+            range="${BASE_SHA}..${HEAD_SHA}"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            # A tag push has no useful "before"; check the whole history it ships.
+            range="HEAD"
+          elif [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            # A new branch: its tip commit (or the root commit of a new repo).
+            if git rev-parse -q --verify HEAD~1 >/dev/null; then range="HEAD~1..HEAD"; else range="HEAD"; fi
+          else
+            range="${BEFORE_SHA}..HEAD"
+          fi
+          bin/privacy-check --commits "$range"

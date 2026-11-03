@@ -1,0 +1,121 @@
+---
+name: "Go"
+
+# Reusable (workflow_call): the Go checks every Go app repo runs on PRs and
+# pushes. Two jobs, "lint" and "test":
+#   lint: gofmt -l must be empty, go vet ./..., and golangci-lint with the
+#         repo's .golangci.yml (PRs only, and only issues the PR introduces).
+#   test: test-command (default go test -race ./...), then
+#         extra-test-command if set.
+# The Go version comes from go.mod unless go-version is set.
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: "Go version for setup-go. Empty: read go-version-file."
+        type: string
+        default: ""
+      go-version-file:
+        description: "File setup-go reads the version from, relative to working-directory."
+        type: string
+        default: "go.mod"
+      working-directory:
+        description: "Directory with go.mod."
+        type: string
+        default: "."
+      golangci-lint-version:
+        description: "golangci-lint release (v2.x; the repo's .golangci.yml is v2 format)."
+        type: string
+        # renovate: datasource=github-releases depName=golangci/golangci-lint
+        default: "v2.15.0"
+      test-command:
+        description: "Test command (bash, in working-directory)."
+        type: string
+        default: "go test -race ./..."
+      extra-test-command:
+        description: "More bash after test-command, in the same job. Empty: none."
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go-version }}
+          go-version-file: ${{ inputs.go-version == '' && format('{0}/{1}', inputs.working-directory, inputs.go-version-file) || '' }}
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::Not gofmt-formatted (run gofmt -w, or install the hooks: task precommit:init):"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # PRs only, and only issues the PR introduces; see the repo's .golangci.yml.
+      - name: golangci-lint
+        if: github.event_name == 'pull_request'
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ inputs.golangci-lint-version }}
+          working-directory: ${{ inputs.working-directory }}
+          only-new-issues: true
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go-version }}
+          go-version-file: ${{ inputs.go-version == '' && format('{0}/{1}', inputs.working-directory, inputs.go-version-file) || '' }}
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+      # The commands are the caller's own workflow inputs, written to a file
+      # so a multi-line script runs with set -e like a run: block.
+      - name: go test
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: |
+          printf '%s\n' "$TEST_COMMAND" > "$RUNNER_TEMP/test.sh"
+          bash -euo pipefail "$RUNNER_TEMP/test.sh"
+
+      - name: Extra tests
+        if: inputs.extra-test-command != ''
+        env:
+          TEST_COMMAND: ${{ inputs.extra-test-command }}
+        run: |
+          printf '%s\n' "$TEST_COMMAND" > "$RUNNER_TEMP/extra-test.sh"
+          bash -euo pipefail "$RUNNER_TEMP/extra-test.sh"

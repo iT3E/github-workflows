@@ -1,0 +1,58 @@
+---
+name: "Changelog"
+
+# Reusable (workflow_call): every PR adds a Changie fragment (`changie new`,
+# under .changes/unreleased/), unless it carries skip-label or comes from a
+# dependency bot. One job, "changelog". The caller triggers on
+# pull_request types opened, synchronize, reopened, labeled and unlabeled,
+# so adding the label re-runs it.
+on:
+  workflow_call:
+    inputs:
+      skip-label:
+        description: "PR label that waives the fragment."
+        type: string
+        default: "skip-changelog"
+      changie-version:
+        description: "Changie release."
+        type: string
+        # renovate: datasource=github-releases depName=miniscruff/changie
+        default: "v1.26.0"
+
+permissions: {}
+
+jobs:
+  changelog:
+    name: changelog
+    if: >-
+      !contains(github.event.pull_request.labels.*.name, inputs.skip-label) &&
+      github.event.pull_request.user.login != 'renovate[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fragment present
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SKIP_LABEL: ${{ inputs.skip-label }}
+        run: |
+          added="$(git diff --name-only --diff-filter=A "$BASE_SHA"...HEAD -- '.changes/unreleased/*.yaml')"
+          if [ -z "$added" ]; then
+            echo "::error::No Changie fragment. Run 'changie new' and commit the file under .changes/unreleased/, or label the PR ${SKIP_LABEL}."
+            exit 1
+          fi
+          echo "Fragments:"; echo "$added"
+
+      - name: Fragments are valid
+        uses: miniscruff/changie-action@3223cb29b92a0972dedc864ace3da01e04780ae4 # v3.0.1
+        with:
+          version: ${{ inputs.changie-version }}
+          args: batch auto --dry-run

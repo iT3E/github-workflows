@@ -1,0 +1,15 @@
+---
+# actions/labeler v5+ match objects (https://github.com/actions/labeler#match-object).
+# Every label here must also be in .github/labels.yaml.
+area/docs:
+  - changed-files:
+      - any-glob-to-any-file: ["*.md", "docs/**"]
+area/github:
+  - changed-files:
+      - any-glob-to-any-file: ".github/**"
+area/renovate:
+  - changed-files:
+      - any-glob-to-any-file: "renovate/**"
+area/tests:
+  - changed-files:
+      - any-glob-to-any-file: "tests/**"

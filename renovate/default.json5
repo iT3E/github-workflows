@@ -1,0 +1,161 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // The Renovate base for every app repo (README "Renovate presets"). A
+  // repo's .github/renovate.json5 extends this and its language preset
+  // (go.json5 or python.json5) at the github-workflows release its
+  // app-repo-template release pins, the same one its workflow callers use.
+  //
+  // Same base as tnwks-ops' own .github/renovate.json5, and the commit
+  // message, label and semantic-commit presets are shared from there.
+  // tnwks-ops' autoMerge.json5 and groups.json5 are about its own paths and
+  // packages (Kubernetes, Flux, Talos), so the automerge tiers are here.
+  extends: [
+    "config:best-practices",
+    "docker:enableMajor",
+    ":disableRateLimiting",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":enablePreCommit",
+    "github>iT3E/tnwks-ops//.github/renovate/commitMessage.json5",
+    "github>iT3E/tnwks-ops//.github/renovate/labels.json5",
+    "github>iT3E/tnwks-ops//.github/renovate/semanticCommits.json5",
+    "helpers:pinGitHubActionDigests",
+  ],
+  // Unlike tnwks-ops, docker:pinDigests stays on: Dockerfile base images
+  // are pinned to digests and Renovate keeps them current. Lock files are
+  // the language preset's business.
+  ignorePresets: [":maintainLockFilesWeekly"],
+  // Automerge through a PR so CI runs, and only when every status check is
+  // green. GitHub Free has no auto-merge on private repos, so Renovate merges
+  // it itself (platformAutomerge off).
+  automergeType: "pr",
+  platformAutomerge: false,
+  automergeStrategy: "squash",
+  ignoreTests: false,
+  dependencyDashboard: true,
+  dependencyDashboardTitle: "Renovate Dashboard 🤖",
+  suppressNotifications: ["prIgnoreNotification"],
+  rebaseWhen: "conflicted",
+  // Weekly, not daily like tnwks-ops: Actions minutes on private repos are
+  // metered. Security updates ignore the schedule.
+  schedule: ["before 7am on monday"],
+  prHourlyLimit: 4,
+  prConcurrentLimit: 10,
+  "pre-commit": {
+    enabled: true,
+  },
+  // Template updates: .copier-answers.yml names the app-repo-template
+  // release, and Renovate runs `copier update` to the new one (git tags,
+  // pep440). The template uses no unsafe Copier features, so no --trust is
+  // needed.
+  copier: {
+    enabled: true,
+  },
+  customManagers: [
+    {
+      customType: "regex",
+      description: "Process generic # renovate: datasource=… depName=… version comments",
+      managerFilePatterns: [
+        "/\\.github/workflows/.+\\.ya?ml$/",
+        "/^Taskfile\\.ya?ml$/",
+        // app-repo-template's own sources (no effect elsewhere)
+        "/^template/.+\\.jinja$/",
+      ],
+      matchStrings: [
+        "datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( registryUrl=(?<registryUrl>\\S+))?\\n.*?[\"']?(?<currentValue>[^\"'\\s]+)[\"']?\\n",
+      ],
+      datasourceTemplate: "{{#if datasource}}{{{datasource}}}{{else}}github-releases{{/if}}",
+    },
+  ],
+  packageRules: [
+    // -------------------------------------------------------------- template
+    {
+      // The template owns these files. Their versions move in
+      // app-repo-template (its own Renovate bumps them there) and arrive
+      // with the next copier update, so a second PR here would only collide
+      // with it. That includes the @<sha> pins of the reusable workflows.
+      description: "Copier-managed files: updated by app-repo-template releases, not here",
+      matchFileNames: [
+        ".github/workflows/actionlint.yaml",
+        ".github/workflows/build.yaml",
+        ".github/workflows/changelog.yaml",
+        ".github/workflows/meta-labeler.yaml",
+        ".github/workflows/meta-sync-labels.yaml",
+        ".github/workflows/privacy-text.yaml",
+        ".github/workflows/privacy.yaml",
+        ".github/workflows/release.yaml",
+        ".github/workflows/secret-scan.yaml",
+        ".pre-commit-config.yaml",
+        "Taskfile.yml",
+      ],
+      enabled: false,
+    },
+    {
+      // The github-workflows @<sha> pins anywhere else, and the #vX.Y.Z on
+      // these presets in .github/renovate.json5 (the renovate-config
+      // manager). app-repo-template owns that version: its Renovate bumps
+      // it there, and copier update moves both here, so a separate PR would
+      // only collide with the next template update.
+      description: "github-workflows pins: app-repo-template owns them, copier update moves them",
+      matchManagers: ["github-actions", "renovate-config"],
+      matchPackageNames: ["iT3E/github-workflows"],
+      enabled: false,
+    },
+    {
+      // Its own PR (never grouped), its own label, reviewed by hand: a
+      // template release changes CI itself, so a green run alone isn't
+      // enough to merge it.
+      description: "app-repo-template releases (copier update)",
+      matchManagers: ["copier"],
+      addLabels: ["renovate/template"],
+      semanticCommitType: "chore",
+      semanticCommitScope: "template",
+      commitMessageTopic: "app-repo-template",
+      groupName: null,
+      automerge: false,
+    },
+    // ------------------------------------------------------------- automerge
+    // Same tiers as tnwks-ops' autoMerge.json5, for the managers every app
+    // repo has. The language preset adds its own. Later rules win, so the
+    // review rules at the bottom override.
+    {
+      description: "GitHub Actions: minor, patch and digest, 3 days after release",
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["minor", "patch", "digest"],
+      minimumReleaseAge: "3 days",
+      automerge: true,
+    },
+    {
+      description: "GitHub's own actions/*: no wait",
+      matchManagers: ["github-actions"],
+      matchPackageNames: ["/^actions\\//"],
+      matchUpdateTypes: ["minor", "patch", "digest"],
+      minimumReleaseAge: null,
+      automerge: true,
+    },
+    {
+      description: "CI tools pinned with # renovate: comments: minor and patch",
+      matchManagers: ["custom.regex"],
+      matchUpdateTypes: ["minor", "patch"],
+      automerge: true,
+    },
+    {
+      description: "pre-commit hooks: minor, patch and digest",
+      matchManagers: ["pre-commit"],
+      matchUpdateTypes: ["minor", "patch", "digest"],
+      automerge: true,
+    },
+    // ---------------------------------------------------------------- review
+    {
+      description: "Majors: always reviewed",
+      matchUpdateTypes: ["major"],
+      automerge: false,
+    },
+    {
+      description: "0.x minors: always reviewed",
+      matchUpdateTypes: ["minor"],
+      matchCurrentVersion: "/^v?0\\./",
+      automerge: false,
+    },
+  ],
+}

@@ -1,0 +1,200 @@
+---
+name: "Release"
+
+# Reusable (workflow_call): cut a release from the Changie fragments on main.
+# One job, "release":
+#   1. batch .changes/unreleased/ into .changes/<version>.md and CHANGELOG.md
+#   2. commit "chore(release): <version>" and push it to main (rebasing onto
+#      a moved main, up to 5 tries), then tag it (annotated) and push the tag
+#   3. publish a GitHub Release with the version's notes
+#   4. if build-workflow is set, dispatch it on the tag: a tag pushed with
+#      GITHUB_TOKEN triggers no workflow, so this is how the tag's image gets
+#      built
+# Nothing happens when there are no fragments.
+#
+# fragment-body adds one more fragment (of fragment-kind) before step 1, for
+# a release no PR wrote a fragment for: app-repo-template passes one when a
+# Renovate PR moved its github-workflows pin, so the bump ships as a
+# template release.
+#
+# The version is changie's next for bump (auto: the highest fragment kind),
+# or first-version while .changes/ has no v*.md yet.
+#
+# The caller triggers on pushes to main touching .changes/unreleased/** and
+# on workflow_dispatch, runs one release at a time (concurrency), and grants
+# contents: write and, with build-workflow, actions: write. GITHUB_TOKEN can
+# push the release commit only while main has no ruleset that blocks it.
+on:
+  workflow_call:
+    inputs:
+      bump:
+        description: "auto, patch, minor or major."
+        type: string
+        default: "auto"
+      first-version:
+        description: "The first release, when no .changes/v*.md exists yet."
+        type: string
+        default: "v0.1.0"
+      build-workflow:
+        description: "Caller workflow file to dispatch on the new tag. Empty: none."
+        type: string
+        default: "build.yaml"
+      changie-version:
+        description: "Changie release."
+        type: string
+        # renovate: datasource=github-releases depName=miniscruff/changie
+        default: "v1.26.0"
+      fragment-kind:
+        description: "Kind of the fragment-body fragment (a kind in the caller's .changie.yaml)."
+        type: string
+        default: "Changed"
+      fragment-body:
+        description: "Add a fragment with this text before releasing. Empty: none."
+        type: string
+        default: ""
+    outputs:
+      version:
+        description: "The released version, or empty when nothing was released."
+        value: ${{ jobs.release.outputs.version }}
+
+permissions: {}
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    permissions:
+      # push the release commit and tag, create the GitHub Release
+      contents: write
+      # dispatch build-workflow on the tag
+      actions: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # A plain fragment file, as changie new writes it (kind, body, time).
+      - name: Add fragment-body
+        if: inputs.fragment-body != ''
+        env:
+          KIND: ${{ inputs.fragment-kind }}
+          BODY: ${{ inputs.fragment-body }}
+        run: |
+          if ! [[ "$KIND" =~ ^[A-Za-z]+$ ]]; then
+            echo "::error::fragment-kind must be one word, not '$KIND'"
+            exit 1
+          fi
+          mkdir -p .changes/unreleased
+          file=".changes/unreleased/${KIND}-$(date -u +%Y%m%d-%H%M%S).yaml"
+          {
+            echo "kind: ${KIND}"
+            echo "body: |-"
+            printf '%s\n' "$BODY" | sed 's/^/  /'
+            echo "time: $(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)"
+          } > "$file"
+          echo "Added $file:"; cat "$file"
+
+      - name: Pending fragments
+        id: pending
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          case "$BUMP" in
+            auto | patch | minor | major) ;;
+            *) echo "::error::bump must be auto, patch, minor or major, not '$BUMP'"; exit 1 ;;
+          esac
+          if compgen -G ".changes/unreleased/*.yaml" > /dev/null; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No unreleased fragments; nothing to release."
+          fi
+
+      - name: Next version
+        id: next-auto
+        if: steps.pending.outputs.found == 'true'
+        uses: miniscruff/changie-action@3223cb29b92a0972dedc864ace3da01e04780ae4 # v3.0.1
+        with:
+          version: ${{ inputs.changie-version }}
+          args: next ${{ inputs.bump }}
+
+      - name: Resolve version
+        id: version
+        if: steps.pending.outputs.found == 'true'
+        env:
+          NEXT: ${{ steps.next-auto.outputs.output }}
+          FIRST_VERSION: ${{ inputs.first-version }}
+        run: |
+          if compgen -G ".changes/v*.md" > /dev/null; then
+            version="$NEXT"
+          else
+            version="$FIRST_VERSION"
+          fi
+          if ! [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::unexpected version '$version'"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version"
+
+      - name: Batch
+        if: steps.pending.outputs.found == 'true'
+        uses: miniscruff/changie-action@3223cb29b92a0972dedc864ace3da01e04780ae4 # v3.0.1
+        with:
+          version: ${{ inputs.changie-version }}
+          args: batch ${{ steps.version.outputs.version }}
+
+      - name: Merge into CHANGELOG.md
+        if: steps.pending.outputs.found == 'true'
+        uses: miniscruff/changie-action@3223cb29b92a0972dedc864ace3da01e04780ae4 # v3.0.1
+        with:
+          version: ${{ inputs.changie-version }}
+          args: merge
+
+      - name: Commit, tag, push
+        if: steps.pending.outputs.found == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A .changes CHANGELOG.md
+          git commit -m "chore(release): ${VERSION}"
+          # main can move between checkout and push (another merge landing).
+          # The release commit only touches .changes/ and CHANGELOG.md, so
+          # rebase onto the new tip and retry; tag only what was pushed.
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::main kept moving; giving up after $attempt attempts"
+              exit 1
+            fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          git tag -a "${VERSION}" -m "${VERSION}"
+          git push origin "${VERSION}"
+
+      - name: GitHub Release
+        if: steps.pending.outputs.found == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${VERSION}" --title "${VERSION}" \
+            --notes-file ".changes/${VERSION}.md" --verify-tag
+
+      - name: Build for the tag
+        if: steps.pending.outputs.found == 'true' && inputs.build-workflow != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_WORKFLOW: ${{ inputs.build-workflow }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run "${BUILD_WORKFLOW}" --ref "${VERSION}"
+          echo "Dispatched ${BUILD_WORKFLOW} on ${VERSION}" >> "$GITHUB_STEP_SUMMARY"

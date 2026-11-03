@@ -1,0 +1,27 @@
+---
+name: "Self: Privacy (comments)"
+
+# This repo's own use of the reusable workflow next to it (a local path, so
+# a PR runs the version it changes).
+on:
+  issue_comment:
+    types: [created, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited]
+  issues:
+    types: [opened, edited]
+
+permissions: {}
+
+jobs:
+  text:
+    name: privacy-text
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/privacy-text.yaml
+    secrets:
+      PRIVACY_TERMS: ${{ secrets.PRIVACY_TERMS }}

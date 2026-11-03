@@ -1,0 +1,48 @@
+---
+version: "3"
+
+# Tasks for working on the reusable workflows and presets.
+
+vars:
+  # renovate: datasource=github-releases depName=rhysd/actionlint
+  ACTIONLINT_VERSION: v1.7.12
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: 44.206.2
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  precommit:init:
+    desc: Install the git hooks (pre-commit and commit-msg) in this clone
+    cmds:
+      - bin/install-hooks
+
+  precommit:run:
+    desc: Run every hook on every file
+    cmds:
+      - pre-commit run --all-files
+
+  privacy:check:
+    desc: Check tracked files and paths against the privacy denylist
+    cmds:
+      - bin/privacy-check {{.CLI_ARGS}}
+
+  privacy:sync:
+    desc: Copy the denylist from a tnwks-ops checkout into this repo's PRIVACY_TERMS Actions secret
+    vars:
+      OPS: '{{.TNWKS_OPS_DIR | default "../tnwks-ops"}}'
+    cmds:
+      - (cd "{{.OPS}}" && sops -d --extract '["terms"]' .github/privacy-terms.sops.yaml) | gh secret set PRIVACY_TERMS
+
+  changelog:new:
+    desc: Add a Changie fragment for this PR (needs changie, brew install changie)
+    cmds:
+      - changie new
+
+  lint:
+    desc: actionlint and renovate-config-validator, as CI runs them (Docker and npx)
+    cmds:
+      - docker run --rm -v "{{.ROOT_DIR}}:/repo" -w /repo "rhysd/actionlint:{{trimPrefix "v" .ACTIONLINT_VERSION}}" -color
+      - npx --yes --package "renovate@{{.RENOVATE_VERSION}}" -- renovate-config-validator --strict --no-global renovate/*.json5 .github/renovate.json5

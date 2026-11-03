@@ -1,0 +1,15 @@
+---
+# yamllint for this repo (self-lint.yaml).
+extends: default
+rules:
+  # Workflow and Taskfile lines carry long commands and URLs.
+  line-length: disable
+  # GitHub Actions' `on:` is a key, not a boolean.
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  document-start: disable
+  indentation:
+    indent-sequences: whatever

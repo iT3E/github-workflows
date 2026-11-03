@@ -1,0 +1,21 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // This repo: the same base app repos get, from its own default branch.
+  // Renovate keeps the actions and the # renovate: pinned tool versions in
+  // the reusable workflows current. Its PRs carry no Changie fragment, so
+  // they ship with the next release (README "Releasing").
+  extends: ["github>iT3E/github-workflows//renovate/default.json5"],
+  // Public repo: Actions minutes are free, so any day, not only Monday
+  // mornings like the private app repos.
+  schedule: ["at any time"],
+  packageRules: [
+    {
+      // default.json5 turns off Renovate in the files app-repo-template
+      // manages in app repos, and some share their names with the reusable
+      // workflows here. Here they are the sources, so they stay on.
+      description: "This repo's own workflows, hooks and Taskfile",
+      matchFileNames: [".github/workflows/**", ".pre-commit-config.yaml", "Taskfile.yml"],
+      enabled: true,
+    },
+  ],
+}
