@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.2.0 - 2026-11-03
+
+### Added
+
+* node.yaml: Node checks for npm app repos (e.g. Angular). npm ci, then the package's lint, prettier --check, test and build scripts, each switchable, with node-version or node-version-file. renovate/node.json5: npm labels and scopes, lock file maintenance, the Angular packages and the Node runtime as groups, and automerge for patch/digest and non-0.x minors.
+
 ## v1.1.0 - 2026-11-03
 
 ### Added
