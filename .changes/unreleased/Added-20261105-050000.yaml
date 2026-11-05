@@ -1,0 +1,3 @@
+kind: Added
+body: "changelog.yaml: input exempt-paths, for paths a PR may change without a fragment."
+time: 2026-11-05T05:00:00.000000000Z
