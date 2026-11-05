@@ -1,3 +1,0 @@
-kind: Added
-body: "release.yaml: input app-client-id and secret RELEASE_APP_PRIVATE_KEY, so a GitHub App can push the release to a main behind a ruleset GITHUB_TOKEN can't bypass."
-time: 2026-11-05T05:00:01.000000000Z

@@ -3,6 +3,13 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.4.0 - 2026-11-05
+
+### Added
+
+* changelog.yaml: input exempt-paths, for paths a PR may change without a fragment.
+* release.yaml: input app-client-id and secret RELEASE_APP_PRIVATE_KEY, so a GitHub App can push the release to a main behind a ruleset GITHUB_TOKEN can't bypass.
+
 ## v1.3.0 - 2026-11-03
 
 ### Changed
