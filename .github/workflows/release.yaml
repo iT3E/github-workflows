@@ -34,9 +34,13 @@ name: "Release"
 # or first-version while .changes/ has no v*.md yet.
 #
 # The caller triggers on pushes to main (every path when auto-fragment is
-# set, else those touching .changes/unreleased/**) and on workflow_dispatch, runs one release at a time (concurrency), and grants
-# contents: write and, with build-workflow, actions: write. GITHUB_TOKEN can
-# push the release commit only while main has no ruleset that blocks it.
+# set, else those touching .changes/unreleased/**) and on
+# workflow_dispatch, runs one release at a time (concurrency), and grants
+# contents: write and actions: write. GITHUB_TOKEN can push the release
+# commit only while main has no ruleset that blocks it. When one does, set
+# app-client-id and pass RELEASE_APP_PRIVATE_KEY: a GitHub App the ruleset
+# lets bypass it then pushes the commit and tag and publishes the release,
+# with a token scoped to contents: write on the calling repo.
 on:
   workflow_call:
     inputs:
@@ -93,6 +97,14 @@ on:
           :(exclude)Taskfile.yml
           :(exclude)bin/install-hooks
           :(exclude)bin/privacy-check
+      app-client-id:
+        description: "Client ID of a GitHub App that pushes the release (for a main behind a ruleset GITHUB_TOKEN can't bypass); needs secret RELEASE_APP_PRIVATE_KEY. Empty: GITHUB_TOKEN pushes."
+        type: string
+        default: ""
+    secrets:
+      RELEASE_APP_PRIVATE_KEY:
+        description: "Private key of the app-client-id GitHub App. Only with app-client-id."
+        required: false
     outputs:
       version:
         description: "The released version, or empty when nothing was released."
@@ -112,11 +124,22 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      - name: Release app token
+        id: app-token
+        if: inputs.app-client-id != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      # The checkout's credentials are what git push uses below.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       # A plain fragment file, as changie new writes it (kind, body, time).
       - name: Add fragment-body
@@ -258,9 +281,17 @@ jobs:
         if: steps.pending.outputs.found == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$APP_SLUG" ]; then
+            bot_id="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+            git config user.name "${APP_SLUG}[bot]"
+            git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          fi
           git add -A .changes CHANGELOG.md
           git commit -m "chore(release): ${VERSION}"
           # main can move between checkout and push (another merge landing).
@@ -284,7 +315,7 @@ jobs:
         if: steps.pending.outputs.found == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           gh release create "${VERSION}" --title "${VERSION}" \
             --notes-file ".changes/${VERSION}.md" --verify-tag

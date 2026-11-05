@@ -2,10 +2,10 @@
 name: "Changelog"
 
 # Reusable (workflow_call): every PR adds a Changie fragment (`changie new`,
-# under .changes/unreleased/), unless it carries skip-label or comes from a
-# dependency bot. One job, "changelog". The caller triggers on
-# pull_request types opened, synchronize, reopened, labeled and unlabeled,
-# so adding the label re-runs it.
+# under .changes/unreleased/), unless it carries skip-label, comes from a
+# dependency bot, or changes only exempt-paths. One job, "changelog". The
+# caller triggers on pull_request types opened, synchronize, reopened,
+# labeled and unlabeled, so adding the label re-runs it.
 on:
   workflow_call:
     inputs:
@@ -13,6 +13,10 @@ on:
         description: "PR label that waives the fragment."
         type: string
         default: "skip-changelog"
+      exempt-paths:
+        description: "Paths (one per line: a file, a directory or a glob, no :(magic)) a PR may change without a fragment. A PR that changes nothing else needs none. Empty: every PR needs one."
+        type: string
+        default: ""
       changie-version:
         description: "Changie release."
         type: string
@@ -39,7 +43,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fragment required?
+        id: need
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXEMPT_PATHS: ${{ inputs.exempt-paths }}
+        run: |
+          excludes=()
+          while IFS= read -r p; do
+            if [ -n "$p" ]; then excludes+=(":(exclude)$p"); fi
+          done <<< "$EXEMPT_PATHS"
+          if [ "${#excludes[@]}" -gt 0 ] \
+            && [ -n "$(git diff --name-only "$BASE_SHA"...HEAD)" ] \
+            && [ -z "$(git diff --name-only "$BASE_SHA"...HEAD -- . "${excludes[@]}")" ]; then
+            echo "Every changed file is in exempt-paths; no fragment needed."
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Fragment present
+        if: steps.need.outputs.required == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           SKIP_LABEL: ${{ inputs.skip-label }}
@@ -52,6 +76,7 @@ jobs:
           echo "Fragments:"; echo "$added"
 
       - name: Fragments are valid
+        if: steps.need.outputs.required == 'true'
         uses: miniscruff/changie-action@3223cb29b92a0972dedc864ace3da01e04780ae4 # v3.0.1
         with:
           version: ${{ inputs.changie-version }}

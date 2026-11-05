@@ -42,8 +42,9 @@ jobs:
 - **The caller owns the triggers** (`on:`), `concurrency` and any
   `paths:` filter, and grants the permissions listed for each workflow on
   the calling job. Every workflow here starts from `permissions: {}`.
-- **Secrets are passed by name**, never `secrets: inherit`. The only one
-  is `PRIVACY_TERMS`.
+- **Secrets are passed by name**, never `secrets: inherit`. There are
+  two: `PRIVACY_TERMS`, and `release.yaml`'s optional
+  `RELEASE_APP_PRIVATE_KEY`.
 - **Check names** in the caller are `<caller job name> / <job name>`, e.g.
   `go / lint` or `privacy / privacy`. The job names below are part of the
   interface.
@@ -232,7 +233,8 @@ workflows. App repos call it only on PRs that touch `.github/workflows/`.
 Job `changelog`. Caller grants `contents: read`. No secrets.
 
 Fails a PR that adds no `.changes/unreleased/*.yaml`, unless it carries
-`skip-label` or was opened by Renovate or Dependabot, then checks the
+`skip-label`, was opened by Renovate or Dependabot, or changes nothing
+outside `exempt-paths`, then checks the
 fragments with `changie batch auto --dry-run`. Callers trigger it on
 `pull_request` types `opened`, `synchronize`, `reopened`, `labeled` and
 `unlabeled`, so adding the label re-runs it.
@@ -240,6 +242,7 @@ fragments with `changie batch auto --dry-run`. Callers trigger it on
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `skip-label` | string | `skip-changelog` | label that waives the fragment |
+| `exempt-paths` | string | empty | paths, one per line (a file, a directory or a glob, no `:(magic)`), a PR may change without a fragment; a PR that changes nothing else needs none |
 | `changie-version` | string | `v1.26.0` (pinned) | Changie release |
 
 ### `labeler.yaml`: path labels
@@ -263,9 +266,9 @@ secrets.
 
 ### `release.yaml`: Changie release
 
-Job `release`. Caller grants `contents: write` and, with
-`build-workflow`, `actions: write`. No secrets. Output `version` (empty
-when nothing was released).
+Job `release`. Caller grants `contents: write` and `actions: write`.
+Secret `RELEASE_APP_PRIVATE_KEY`, only with `app-client-id`. Output
+`version` (empty when nothing was released).
 
 1. Batches `.changes/unreleased/` into `.changes/<version>.md` and
    `CHANGELOG.md`.
@@ -281,7 +284,11 @@ Nothing happens without fragments. The version is Changie's next for
 push when `auto-fragment` is set, else those touching
 `.changes/unreleased/**`), plus `workflow_dispatch`, with a `concurrency`
 group so releases run one at a time. `GITHUB_TOKEN` can push the release
-commit only while no ruleset blocks it.
+commit only while no ruleset blocks it. When one does, set `app-client-id`
+and pass `RELEASE_APP_PRIVATE_KEY`: a GitHub App the ruleset lets bypass
+it pushes the commit and tag and publishes the release, with a token
+scoped to `contents: write` on the calling repo. The commit is authored
+by `<app-slug>[bot]`.
 
 **Automatic releases for bot PRs.** Renovate and Dependabot PRs carry no
 fragment (`changelog.yaml` waives it), so on their own they would never
@@ -311,6 +318,7 @@ app repo whose image is built from the rest.
 | `auto-fragment` | string | empty | text of the automatic fragment for bot commits that changed `ship-paths` (see above); empty: off |
 | `auto-fragment-kind` | string | `Fixed` | kind of that fragment |
 | `ship-paths` | string | every path but docs and repo tooling | git pathspecs, one per line (`:(exclude)` allowed), for what a release ships |
+| `app-client-id` | string | empty | client ID of a GitHub App that pushes the release, for a `main` behind a ruleset; needs `RELEASE_APP_PRIVATE_KEY`; empty: `GITHUB_TOKEN` pushes |
 
 ## Renovate presets
 
