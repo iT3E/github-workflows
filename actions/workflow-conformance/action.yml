@@ -1,0 +1,28 @@
+---
+name: Workflow conformance
+description: >-
+  Workflow conventions that actionlint and zizmor don't enforce: a timeout
+  on every job (15 minutes at most on ubuntu-slim), known runner labels,
+  same-repo guards on self-hosted PR jobs, SHA-pinned actions and digest-pinned
+  images, top-level permissions, and an explicit persist-credentials on every
+  checkout. One annotation per violation; fails on any. Needs python3 and yq
+  (both on GitHub's Ubuntu images, ubuntu-slim included) and a checkout.
+inputs:
+  path:
+    description: Repo root to check (its .github/workflows, .github/actions/*/ and actions/*/)
+    required: false
+    default: "."
+  hosted-labels:
+    description: Space-separated GitHub-hosted runner labels jobs may use. Self-hosted labels come from .github/actionlint.yaml
+    required: false
+    default: ubuntu-26.04 ubuntu-slim
+runs:
+  using: composite
+  steps:
+    - name: Workflow conventions
+      shell: bash
+      env:
+        SCRIPT: ${{ github.action_path }}/conformance.py
+        ROOT: ${{ inputs.path }}
+        HOSTED: ${{ inputs.hosted-labels }}
+      run: python3 "$SCRIPT" "$ROOT" --hosted "$HOSTED"

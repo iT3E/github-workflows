@@ -86,8 +86,8 @@ Every workflow also takes two inputs that its tables don't repeat:
 | `timeout-minutes` | number | per workflow, below | timeout for each job |
 
 The `timeout-minutes` defaults are 5 for `changelog`, `labeler`,
-`privacy`, `privacy-text` and `sync-labels`; 10 for `actionlint` and
-`secret-scan`; 15 for `release`; 30 for `go`, `python` and `node`; and
+`privacy`, `privacy-text` and `sync-labels`; 10 for `actionlint`,
+`secret-scan` and `zizmor`; 15 for `release`; 30 for `go`, `python` and `node`; and
 60 for `image`.
 
 ### `go.yaml`: Go checks
@@ -243,6 +243,19 @@ workflows. App repos call it only on PRs that touch `.github/workflows/`.
 | --- | --- | --- | --- |
 | `actionlint-version` | string | `v1.7.12` (pinned) | actionlint container tag, with or without the `v` |
 
+### `zizmor.yaml`: workflow security audit
+
+Job `zizmor`. Caller grants `contents: read`. No secrets.
+
+[zizmor](https://docs.zizmor.sh) over the caller's workflows and actions.
+Findings are PR annotations; nothing is uploaded to code scanning. The
+caller's `.github/zizmor.yml` applies if it has one, and single findings are
+waived with a `# zizmor: ignore[<audit>] <reason>` comment on the line.
+
+| Input | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `zizmor-version` | string | `1.31.1` (pinned) | zizmor version |
+
 ### `changelog.yaml`: a Changie fragment per PR
 
 Job `changelog`. Caller grants `contents: read`. No secrets.
@@ -334,6 +347,89 @@ app repo whose image is built from the rest.
 | `auto-fragment-kind` | string | `Fixed` | kind of that fragment |
 | `ship-paths` | string | every path but docs and repo tooling | git pathspecs, one per line (`:(exclude)` allowed), for what a release ships |
 | `app-client-id` | string | empty | client ID of a GitHub App that pushes the release, for a `main` behind a ruleset; needs `RELEASE_APP_PRIVATE_KEY`; empty: `GITHUB_TOKEN` pushes |
+
+## Actions
+
+Composite actions in `actions/`, for steps that live inside a caller's own
+job rather than a whole workflow. Call them like any action, pinned to a
+release commit:
+
+```yaml
+      - uses: iT3E/github-workflows/actions/setup-flate@<sha> # vX.Y.Z
+        with:
+          version: "0.6.5"
+```
+
+Their inputs and outputs are part of the interface, with the same semver
+rules as the workflows. Each one has a job in `self-test.yaml`.
+
+### `actions/setup-flate`
+
+Installs [flate](https://github.com/home-operations/flate) (renders and
+diffs Flux trees offline) to `/usr/local/bin` after checking the release's
+SHA-256, and `flate-guard` next to it. `flate-guard <flate args>` caps each
+run at `RENDER_TIMEOUT` (default `2m`) and retries a hang up to
+`RENDER_ATTEMPTS` times (default 2), printing flate's process state and the
+tail of its debug log before it kills a hung attempt. Use it in CI instead of
+calling `flate` directly: flate occasionally hangs with no output.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `version` | (required) | flate version without the `v`; pin it in the caller with a Renovate comment |
+
+### `actions/sticky-comment`
+
+Creates or updates one PR comment, found by a hidden marker at the start of
+its body, so each run edits the same comment. The job needs
+`pull-requests: write`.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `marker` | (required) | e.g. `<!-- plan-dns -->`; prepended if the body doesn't start with it |
+| `body-file` | (required) | Markdown file with the body |
+| `number` | the event's PR | PR number |
+| `only-update` | `false` | update an existing comment but never create one (for "no changes" runs) |
+| `author` | `github-actions[bot]` | whose comments count (the token's identity) |
+| `token` | `github.token` | token to post with |
+
+Output `comment-id`: the comment created or updated, empty if none.
+
+### `actions/terraform`
+
+Plans one Terraform root, and with `mode: apply` applies it when the plan
+has changes. Written for public repos: the plan body never reaches the log,
+only counts and the changed addresses (including moves), and on failure only
+Terraform's error blocks. Needs `jq` (on GitHub's images) and whatever
+credentials the root's backend and providers read from the environment.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `working-directory` | (required) | the root module's directory |
+| `mode` | (required) | `plan` or `apply` |
+| `terraform-version` | `1.17.1` | for hashicorp/setup-terraform |
+| `tf-api-token` | empty | HCP Terraform token, set as `TF_TOKEN_app_terraform_io` |
+| `tf-vars` | empty | `TF_VAR_<name>=<value>` lines for non-secret overrides; anything else fails the step |
+
+Outputs `summary` (Markdown, also in the job summary) and `changes`
+(`true`/`false`). Post the summary with `actions/sticky-comment`.
+
+### `actions/workflow-conformance`
+
+The workflow conventions actionlint and zizmor don't check, over
+`.github/workflows/`, `.github/actions/*/` and `actions/*/`: every job has a
+`timeout-minutes` (15 at most on `ubuntu-slim`, where GitHub stops jobs at
+15 minutes); `runs-on` is an allowed hosted label, a self-hosted label from
+`.github/actionlint.yaml`, or an expression; a self-hosted job in a
+`pull_request` workflow checks the PR comes from the same repo; remote
+`uses:` are SHA-pinned and `docker://` images digest-pinned; every workflow
+sets top-level `permissions`; every checkout sets `persist-credentials`
+(false, or an explicit true for a job that pushes). Needs a checkout, plus
+`python3` and `yq` (on every Ubuntu image, `ubuntu-slim` included).
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `path` | `.` | repo root |
+| `hosted-labels` | `ubuntu-26.04 ubuntu-slim` | space-separated hosted labels jobs may use |
 
 ## Renovate presets
 

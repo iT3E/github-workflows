@@ -1,0 +1,7 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-app
+data:
+  greeting: ${EXAMPLE_GREETING}

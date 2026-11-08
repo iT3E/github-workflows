@@ -1,0 +1,46 @@
+---
+name: "zizmor"
+
+# zizmor (https://docs.zizmor.sh), the GitHub Actions security audit, on the
+# caller's workflows and actions. Findings are annotations on the PR; nothing
+# is uploaded to code scanning, so it needs only contents: read. Config is the
+# caller's .github/zizmor.yml (or zizmor.yml) if it has one, and per-line
+# exceptions are `# zizmor: ignore[<audit>] <reason>` comments.
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: "Runner label for the job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Job timeout in minutes."
+        type: number
+        default: 10
+      zizmor-version:
+        description: "zizmor version to run."
+        type: string
+        # renovate: datasource=pypi depName=zizmor
+        default: "1.31.1"
+
+permissions: {}
+
+jobs:
+  zizmor:
+    name: zizmor
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          advanced-security: false
+          annotations: true
+          version: ${{ inputs.zizmor-version }}

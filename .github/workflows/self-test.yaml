@@ -11,6 +11,11 @@ name: "Self: Test"
 #   image    image.yaml on tests/image, with and without its Postgres
 #            service. Never pushed: push-main is false, and this workflow
 #            doesn't run on tags.
+# and the composite actions in actions/:
+#   setup-flate           flate and flate-guard render tests/flux/cluster
+#   terraform             a plan of tests/terraform, and a bad tf-vars line
+#   sticky-comment        create, update, only-update, then delete (PRs only)
+#   workflow-conformance  this repo passes, and a broken copy fails
 on:
   pull_request:
   push:
@@ -129,3 +134,177 @@ jobs:
           fi
           echo "No Postgres service, as expected"
         fi
+
+  # The composite actions in actions/, from this checkout. App repos call
+  # them as iT3E/github-workflows/actions/<name>@<sha> # vX.Y.Z.
+  setup-flate:
+    name: setup-flate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      # renovate: datasource=github-releases depName=home-operations/flate
+      FLATE_VERSION: "0.6.5"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up flate
+        uses: ./actions/setup-flate
+        with:
+          version: ${{ env.FLATE_VERSION }}
+
+      # tests/flux/cluster's GitRepository points at this repo, so flate
+      # renders the checkout. The ConfigMap needs the Kustomization's
+      # postBuild substitution to come out right.
+      - name: Render the fixture through flate-guard
+        run: |
+          set -euo pipefail
+          flate-guard test all --no-progress -p tests/flux/cluster
+          out="$(flate-guard build ks example-app -p tests/flux/cluster)"
+          echo "$out"
+          grep -qx '  greeting: hello' <<<"$out" || { echo "::error::postBuild substitution missing"; exit 1; }
+
+  terraform:
+    name: terraform
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Plan
+        id: tf
+        uses: ./actions/terraform
+        with:
+          working-directory: tests/terraform
+          mode: plan
+          tf-vars: |
+            TF_VAR_greeting=hi
+
+      - name: Check the outputs
+        env:
+          CHANGES: ${{ steps.tf.outputs.changes }}
+          SUMMARY: ${{ steps.tf.outputs.summary }}
+        run: |
+          set -euo pipefail
+          [ "$CHANGES" = true ] || { echo "::error::changes is $CHANGES, want true"; exit 1; }
+          grep -q '^\*\*Plan:\*\* 1 to add, 0 to change, 0 to destroy, 0 to move$' <<<"$SUMMARY" \
+            || { echo "::error::unexpected summary: $SUMMARY"; exit 1; }
+          grep -q 'terraform_data.example' <<<"$SUMMARY"
+
+      - name: A bad tf-vars line fails
+        id: bad
+        continue-on-error: true
+        uses: ./actions/terraform
+        with:
+          working-directory: tests/terraform
+          mode: plan
+          tf-vars: |
+            greeting=hi
+
+      - name: Check it failed
+        env:
+          OUTCOME: ${{ steps.bad.outcome }}
+        run: '[ "$OUTCOME" = failure ] || { echo "::error::a bad tf-vars line passed"; exit 1; }'
+
+  # Creates the comment, updates it in place, checks there's exactly one,
+  # then deletes it. Only on PRs from this repo (a fork's token can't write).
+  sticky-comment:
+    name: sticky-comment
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Bodies
+        env:
+          RUN: ${{ github.run_id }}
+        run: |
+          echo "self-test: sticky-comment, run ${RUN}, first pass" > "$RUNNER_TEMP/one.md"
+          echo "self-test: sticky-comment, run ${RUN}, second pass" > "$RUNNER_TEMP/two.md"
+
+      - name: only-update with no comment posts nothing
+        id: none
+        uses: ./actions/sticky-comment
+        with:
+          marker: "<!-- self-test-sticky-${{ github.run_id }} -->"
+          body-file: ${{ runner.temp }}/one.md
+          only-update: "true"
+
+      - name: Create
+        id: create
+        uses: ./actions/sticky-comment
+        with:
+          marker: "<!-- self-test-sticky-${{ github.run_id }} -->"
+          body-file: ${{ runner.temp }}/one.md
+
+      - name: Update
+        id: update
+        uses: ./actions/sticky-comment
+        with:
+          marker: "<!-- self-test-sticky-${{ github.run_id }} -->"
+          body-file: ${{ runner.temp }}/two.md
+
+      - name: Check and clean up
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          NONE: ${{ steps.none.outputs.comment-id }}
+          CREATED: ${{ steps.create.outputs.comment-id }}
+          UPDATED: ${{ steps.update.outputs.comment-id }}
+          MARKER: "<!-- self-test-sticky-${{ github.run_id }} -->"
+        run: |
+          set -euo pipefail
+          rc=0
+          [ -z "$NONE" ] || { echo "::error::only-update created comment $NONE"; rc=1; }
+          [ -n "$CREATED" ] && [ "$CREATED" = "$UPDATED" ] || { echo "::error::update didn't reuse comment $CREATED (got $UPDATED)"; rc=1; }
+          # shellcheck disable=SC2016 # $ENV is jq's, not the shell's
+          ids="$(gh api --paginate "repos/${REPO}/issues/${PR}/comments" --jq '.[] | select(.body | startswith($ENV.MARKER)) | .id')"
+          [ "$(wc -w <<<"$ids")" -eq 1 ] || { echo "::error::want one marked comment, got: $ids"; rc=1; }
+          body="$(gh api "repos/${REPO}/issues/comments/${CREATED}" --jq .body)"
+          grep -q 'second pass' <<<"$body" || { echo "::error::comment wasn't updated"; rc=1; }
+          for id in $ids; do gh api -X DELETE "repos/${REPO}/issues/comments/${id}" --silent; done
+          exit "$rc"
+
+  conformance:
+    name: workflow-conformance
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: This repo conforms
+        uses: ./actions/workflow-conformance
+
+      # A copy with a job that has no timeout must fail.
+      - name: A violation fails
+        run: |
+          set -euo pipefail
+          bad="$RUNNER_TEMP/bad"
+          mkdir -p "$bad/.github/workflows"
+          printf '%s\n' '---' 'on: push' 'permissions: {}' 'jobs:' '  x:' '    runs-on: ubuntu-26.04' '    steps:' '      - run: "true"' \
+            > "$bad/.github/workflows/x.yaml"
+          if python3 actions/workflow-conformance/conformance.py "$bad"; then
+            echo "::error::a job without timeout-minutes passed"; exit 1
+          fi
