@@ -21,7 +21,7 @@ on:
         description: "zizmor version to run."
         type: string
         # renovate: datasource=pypi depName=zizmor
-        default: "1.31.1"
+        default: "1.32.0"
 
 permissions: {}
 
