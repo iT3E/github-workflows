@@ -119,8 +119,9 @@ then `ruff check` and `ruff format --check` if enabled, then
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `python-version` | string | `3.12` | setup-python version |
+| `python-version` | string | `3.12` | Python version (setup-python, or uv's managed Python with `uv`) |
 | `working-directory` | string | `.` | where the checks run |
+| `uv` | boolean | `false` | set Python up with uv: an activated `.venv` (`python` on PATH, no `pip`), `uv sync --locked` when `working-directory` has a `uv.lock`, uv's cache saved from the default branch only. `test-command` can use `uv run` |
 | `ruff-check` | boolean | `false` | run `ruff check` with the repo's config |
 | `ruff-format` | boolean | `false` | run `ruff format --check` |
 | `ruff-version` | string | `0.17.3` (pinned) | ruff from PyPI |

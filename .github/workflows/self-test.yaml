@@ -57,6 +57,22 @@ jobs:
         python -m unittest -v
         python -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
 
+  python-uv:
+    name: python (uv)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/python.yaml
+    with:
+      working-directory: tests/python
+      python-version: "3.13"
+      uv: true
+      ruff-check: true
+      ruff-format: true
+      test-command: |
+        python -m unittest -v
+        python -c 'import sys; assert sys.version_info[:2] == (3, 13), sys.version'
+        test -n "$VIRTUAL_ENV"
+
   node:
     name: node (all checks)
     permissions:
