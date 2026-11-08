@@ -4,7 +4,7 @@ name: "Self: Privacy (comments)"
 # This repo's own use of the reusable workflow next to it (a local path, so
 # a PR runs the version it changes).
 on:
-  issue_comment:
+  issue_comment: # zizmor: ignore[dangerous-triggers] no PR code is checked out or run; comment text is only read as data
     types: [created, edited]
   pull_request_review_comment:
     types: [created, edited]

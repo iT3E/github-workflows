@@ -22,6 +22,14 @@ on:
         type: string
         # renovate: datasource=github-releases depName=miniscruff/changie
         default: "v1.26.0"
+      runs-on:
+        description: "Runner label for every job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Timeout for each job, in minutes."
+        type: number
+        default: 5
 
 permissions: {}
 
@@ -32,7 +40,8 @@ jobs:
       !contains(github.event.pull_request.labels.*.name, inputs.skip-label) &&
       github.event.pull_request.user.login != 'renovate[bot]' &&
       github.event.pull_request.user.login != 'dependabot[bot]'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     steps:

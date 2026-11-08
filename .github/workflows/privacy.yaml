@@ -21,6 +21,14 @@ on:
         description: "Warn and pass when PRIVACY_TERMS is missing (fork PRs on a public repo). Default: fail."
         type: boolean
         default: false
+      runs-on:
+        description: "Runner label for every job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Timeout for each job, in minutes."
+        type: number
+        default: 5
     secrets:
       PRIVACY_TERMS:
         required: false
@@ -30,7 +38,8 @@ permissions: {}
 jobs:
   privacy:
     name: privacy
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     steps:
