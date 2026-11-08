@@ -1,0 +1,3 @@
+kind: Added
+body: '`python.yaml`: `uv: true` sets Python up with uv (an activated .venv, `uv sync --locked` when there is a uv.lock, uv''s cache) instead of setup-python. Off by default'
+time: 2026-11-08T01:00:44.478908346-08:00
