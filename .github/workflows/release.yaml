@@ -101,6 +101,14 @@ on:
         description: "Client ID of a GitHub App that pushes the release (for a main behind a ruleset GITHUB_TOKEN can't bypass); needs secret RELEASE_APP_PRIVATE_KEY. Empty: GITHUB_TOKEN pushes."
         type: string
         default: ""
+      runs-on:
+        description: "Runner label for every job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Timeout for each job, in minutes."
+        type: number
+        default: 15
     secrets:
       RELEASE_APP_PRIVATE_KEY:
         description: "Private key of the app-client-id GitHub App. Only with app-client-id."
@@ -115,7 +123,8 @@ permissions: {}
 jobs:
   release:
     name: release
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       # push the release commit and tag, create the GitHub Release
       contents: write
@@ -134,7 +143,7 @@ jobs:
           permission-contents: write
 
       # The checkout's credentials are what git push uses below.
-      - name: Checkout
+      - name: Checkout # zizmor: ignore[artipacked] git push below uses these credentials; nothing is uploaded
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main

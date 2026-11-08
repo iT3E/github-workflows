@@ -68,6 +68,14 @@ on:
         type: string
         # renovate: datasource=docker depName=postgres
         default: "18"
+      runs-on:
+        description: "Runner label for every job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Timeout for each job, in minutes."
+        type: number
+        default: 60
     secrets:
       PRIVACY_TERMS:
         description: "The privacy denylist (tnwks-ops), needed only for a push."
@@ -82,7 +90,8 @@ permissions: {}
 jobs:
   image:
     name: image
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
       packages: write
@@ -91,7 +100,7 @@ jobs:
     services:
       postgres:
         # An empty image starts no service (postgres: false).
-        image: ${{ inputs.postgres && format('postgres:{0}', inputs.postgres-version) || '' }}
+        image: ${{ inputs.postgres && format('postgres:{0}', inputs.postgres-version) || '' }} # zizmor: ignore[unpinned-images] the caller picks postgres-version; a test-only service, never shipped
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:

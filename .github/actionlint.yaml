@@ -1,0 +1,6 @@
+---
+# actionlint 1.7.12 (the latest release) predates the ubuntu-26.04 hosted
+# image. Remove this when a release knows the label.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

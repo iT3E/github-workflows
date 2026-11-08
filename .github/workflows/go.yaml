@@ -36,13 +36,22 @@ on:
         description: "More bash after test-command, in the same job. Empty: none."
         type: string
         default: ""
+      runs-on:
+        description: "Runner label for every job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Timeout for each job, in minutes."
+        type: number
+        default: 30
 
 permissions: {}
 
 jobs:
   lint:
     name: lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     defaults:
@@ -84,7 +93,8 @@ jobs:
 
   test:
     name: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     defaults:

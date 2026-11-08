@@ -43,13 +43,22 @@ on:
         description: "Extra test command (bash, in working-directory), after the build. Empty: none."
         type: string
         default: ""
+      runs-on:
+        description: "Runner label for every job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Timeout for each job, in minutes."
+        type: number
+        default: 30
 
 permissions: {}
 
 jobs:
   check:
     name: check
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     defaults:

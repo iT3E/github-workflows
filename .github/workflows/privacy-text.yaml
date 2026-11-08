@@ -18,6 +18,15 @@ name: "Privacy (comments)"
 # skipped job here never stands in for the "privacy" check on a PR head.
 on:
   workflow_call:
+    inputs:
+      runs-on:
+        description: "Runner label for every job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Timeout for each job, in minutes."
+        type: number
+        default: 5
     secrets:
       PRIVACY_TERMS:
         required: false
@@ -28,7 +37,8 @@ jobs:
   text:
     name: privacy-text
     if: github.event.sender.type != 'Bot'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
       issues: write

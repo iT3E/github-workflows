@@ -16,13 +16,22 @@ on:
         description: "Delete labels that aren't in the file."
         type: boolean
         default: true
+      runs-on:
+        description: "Runner label for every job."
+        type: string
+        default: "ubuntu-latest"
+      timeout-minutes:
+        description: "Timeout for each job, in minutes."
+        type: number
+        default: 5
 
 permissions: {}
 
 jobs:
   labels:
     name: sync-labels
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
       issues: write

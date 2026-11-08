@@ -1,0 +1,9 @@
+---
+# zizmor (https://docs.zizmor.sh/configuration/), run by self-lint.yaml.
+# Per-line exceptions use `# zizmor: ignore[<audit>] <reason>` next to the
+# finding instead.
+rules:
+  # Suggests `uses: $/...` for local workflows. actionlint (1.7.12) rejects
+  # that syntax, so local calls stay `./...` until it understands it.
+  self-repository:
+    disable: true

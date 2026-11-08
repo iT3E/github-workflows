@@ -78,6 +78,18 @@ Tags never move and are never deleted: every caller pins a tag's commit.
 The defaults marked "(pinned)" are tool versions kept current by Renovate
 here (`# renovate:` comments).
 
+Every workflow also takes two inputs that its tables don't repeat:
+
+| Input | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `runs-on` | string | `ubuntu-latest` | runner label for every job |
+| `timeout-minutes` | number | per workflow, below | timeout for each job |
+
+The `timeout-minutes` defaults are 5 for `changelog`, `labeler`,
+`privacy`, `privacy-text` and `sync-labels`; 10 for `actionlint` and
+`secret-scan`; 15 for `release`; 30 for `go`, `python` and `node`; and
+60 for `image`.
+
 ### `go.yaml`: Go checks
 
 Jobs `lint` and `test`. Caller grants `contents: read`. No secrets.
@@ -194,7 +206,8 @@ ships tags only).
 ### `privacy-text.yaml`: the denylist on comments, reviews and issues
 
 Job `privacy-text`. Caller grants `contents: read`, `issues: write` and
-`pull-requests: write`. Secret `PRIVACY_TERMS`. No inputs.
+`pull-requests: write`. Secret `PRIVACY_TERMS`. No inputs besides
+`runs-on` and `timeout-minutes`.
 
 GitHub can't refuse a comment, so this runs right after one is posted: a
 comment with a hit is deleted, a review body is replaced, and an issue
