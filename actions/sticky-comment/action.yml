@@ -1,0 +1,89 @@
+---
+name: Sticky PR comment
+description: >-
+  Creates or updates one comment on a pull request, found by a marker the
+  body starts with, so repeated runs edit the same comment instead of adding
+  new ones. The job needs `pull-requests: write`. Uses curl and jq only.
+inputs:
+  marker:
+    description: >-
+      Hidden marker that identifies the comment, e.g. `<!-- plan-example -->`.
+      It's prepended to the body if the body doesn't start with it.
+    required: true
+  body-file:
+    description: Path to a file with the comment's Markdown body
+    required: true
+  number:
+    description: Pull request number (defaults to the event's pull request)
+    required: false
+    default: ""
+  only-update:
+    description: >-
+      true: update the comment if it exists, but don't create one. For
+      "nothing to report" runs, so a PR that never had a comment doesn't get
+      one, while one that had a comment sees it updated.
+    required: false
+    default: "false"
+  author:
+    description: Login whose comments are considered (the token's identity)
+    required: false
+    default: github-actions[bot]
+  token:
+    description: Token with pull-requests write access
+    required: false
+    default: ${{ github.token }}
+outputs:
+  comment-id:
+    description: ID of the comment created or updated (empty if none)
+    value: ${{ steps.comment.outputs.id }}
+runs:
+  using: composite
+  steps:
+    - name: Comment
+      id: comment
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        API: ${{ github.api_url }}
+        REPO: ${{ github.repository }}
+        MARKER: ${{ inputs.marker }}
+        BODY_FILE: ${{ inputs.body-file }}
+        NUMBER: ${{ inputs.number || github.event.pull_request.number }}
+        ONLY_UPDATE: ${{ inputs.only-update }}
+        AUTHOR: ${{ inputs.author }}
+      # curl and jq only (no gh), so it also runs on lean self-hosted images.
+      run: |
+        set -euo pipefail
+        if [ -z "${NUMBER}" ]; then
+          echo "::error::no pull request number (not a pull_request event, and no number input)"
+          exit 1
+        fi
+        api() {  # METHOD PATH [JSON BODY FILE]
+          curl -fsS --retry 3 --retry-all-errors -X "$1" \
+            -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" ${3:+--data-binary "@$3"} "${API}/$2"
+        }
+        body="${RUNNER_TEMP}/sticky-comment-$$.md"
+        if [ "$(head -c "${#MARKER}" "${BODY_FILE}")" = "${MARKER}" ]; then
+          cp "${BODY_FILE}" "${body}"
+        else
+          { printf '%s\n' "${MARKER}"; cat "${BODY_FILE}"; } > "${body}"
+        fi
+        jq -Rs '{body: .}' "${body}" > "${body}.json"
+        id=""
+        for page in $(seq 1 50); do
+          comments="$(api GET "repos/${REPO}/issues/${NUMBER}/comments?per_page=100&page=${page}")"
+          [ "$(jq length <<<"${comments}")" -eq 0 ] && break
+          id="$(jq -r '.[] | select(.user.login == env.AUTHOR and (.body | startswith(env.MARKER))) | .id' <<<"${comments}" | head -n 1)"
+          [ -n "${id}" ] && break
+        done
+        if [ -n "${id}" ]; then
+          api PATCH "repos/${REPO}/issues/comments/${id}" "${body}.json" > /dev/null
+          echo "Updated comment ${id}."
+        elif [ "${ONLY_UPDATE}" = true ]; then
+          echo "No existing comment and only-update is set; nothing posted."
+        else
+          id="$(api POST "repos/${REPO}/issues/${NUMBER}/comments" "${body}.json" | jq -r .id)"
+          echo "Created comment ${id}."
+        fi
+        echo "id=${id}" >> "${GITHUB_OUTPUT}"

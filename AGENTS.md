@@ -19,6 +19,10 @@ is public, and every app repo's CI runs code from it.
   renaming, removing or changing a default is Breaking (a major release).
 - A change to a build workflow (`go`, `python`, `node`, `image`) gets a call in
   `self-test.yaml` that exercises it, on the fixtures in `tests/`.
+- The composite actions in `actions/` are an interface too (inputs and
+  outputs), with a `self-test.yaml` job each, and pin third-party actions the
+  same way. A reusable workflow can't call them by a relative path (that
+  resolves in the caller's checkout), so workflows here don't use them.
 - Keep every reusable workflow `workflow_call` only, starting from
   `permissions: {}`, with actions pinned `@<sha> # vX.Y.Z`
   (`self-lint.yaml` checks).

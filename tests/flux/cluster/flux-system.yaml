@@ -1,0 +1,13 @@
+---
+# A flux-system GitRepository whose URL matches the checkout's origin, so
+# flate renders the checkout instead of fetching it.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: flux-system
+  namespace: flux-system
+spec:
+  interval: 30m
+  url: https://github.com/iT3E/github-workflows
+  ref:
+    branch: main

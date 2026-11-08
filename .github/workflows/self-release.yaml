@@ -57,5 +57,6 @@ jobs:
       auto-fragment: "Dependency updates"
       ship-paths: |
         .github/workflows
+        actions
         renovate
         :(exclude).github/workflows/self-*

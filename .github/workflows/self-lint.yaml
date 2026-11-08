@@ -2,12 +2,14 @@
 name: "Self: Lint"
 
 # The repo's own lint, on every PR and push to main:
-#   lint      yamllint; shellcheck on bin/*; every reusable workflow is
-#             workflow_call only, starts from permissions: {}, and pins
-#             third-party actions to a commit SHA. Every job that runs
-#             steps has timeout-minutes, and a reusable workflow's jobs
-#             take runs-on and timeout-minutes from its inputs.
-#   zizmor    zizmor on every workflow (.github/zizmor.yml).
+#   lint      yamllint; shellcheck on bin/* and the actions' scripts; every
+#             reusable workflow is workflow_call only, starts from
+#             permissions: {}, and pins third-party actions to a commit
+#             SHA, and so does every composite action in actions/. Every job
+#             that runs steps has timeout-minutes, and a reusable workflow's
+#             jobs take runs-on and timeout-minutes from its inputs.
+#   zizmor    zizmor.yaml (this repo's reusable one) on every workflow and
+#             action (.github/zizmor.yml).
 #   renovate  renovate-config-validator on the presets in renovate/ and
 #             this repo's .github/renovate.json5, as repo configs.
 on:
@@ -39,10 +41,10 @@ jobs:
       - name: yamllint
         run: |
           pipx run "yamllint==${YAMLLINT_VERSION}" -c .yamllint.yaml \
-            .github .yamllint.yaml .changie.yaml .pre-commit-config.yaml Taskfile.yml
+            .github actions tests/flux .yamllint.yaml .changie.yaml .pre-commit-config.yaml Taskfile.yml
 
       - name: shellcheck
-        run: shellcheck bin/*
+        run: shellcheck bin/* actions/setup-flate/flate-guard
 
       # The files app repos call: everything in .github/workflows/ except
       # this repo's own self-*.yaml.
@@ -57,6 +59,11 @@ jobs:
             if ! grep -qx 'permissions: {}' "$f"; then
               echo "::error file=$f::a reusable workflow starts from permissions: {}"; rc=1
             fi
+            if grep -nE '^\s*(- )?uses: [^.][^@]*(@[^ ]*)?\s*(#.*)?$' "$f" | grep -vE 'uses: [^@ ]+@[0-9a-f]{40} # v' ; then
+              echo "::error file=$f::actions must be pinned as @<40-hex sha> # vX.Y.Z"; rc=1
+            fi
+          done
+          for f in actions/*/action.yml; do
             if grep -nE '^\s*(- )?uses: [^.][^@]*(@[^ ]*)?\s*(#.*)?$' "$f" | grep -vE 'uses: [^@ ]+@[0-9a-f]{40} # v' ; then
               echo "::error file=$f::actions must be pinned as @<40-hex sha> # vX.Y.Z"; rc=1
             fi
@@ -92,23 +99,11 @@ jobs:
 
   zizmor:
     name: zizmor
-    runs-on: ubuntu-26.04
-    timeout-minutes: 10
     permissions:
       contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: zizmor
-        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
-        with:
-          # Findings show as annotations on the PR; no code-scanning upload.
-          advanced-security: false
-          annotations: true
-          version: 1.31.1
+    uses: ./.github/workflows/zizmor.yaml
+    with:
+      runs-on: ubuntu-26.04
 
   renovate:
     name: renovate-config
