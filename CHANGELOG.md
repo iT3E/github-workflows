@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.5.0 - 2026-11-08
+
+### Added
+
+* Every reusable workflow takes `runs-on` (default `ubuntu-latest`) and `timeout-minutes` (a per-workflow default) inputs, so no job runs for the 6-hour default any more. Self-lint runs zizmor and checks that every job has a timeout
+
 ## v1.4.3 - 2026-11-08
 
 ### Fixed
