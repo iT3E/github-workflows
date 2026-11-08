@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.4.3 - 2026-11-08
+
+### Fixed
+
+* Dependency updates: feat(github-action): update docker/login-action action to v4.8.0 (#15)
+
 ## v1.4.2 - 2026-11-06
 
 ### Fixed
