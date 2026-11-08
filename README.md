@@ -381,7 +381,8 @@ calling `flate` directly: flate occasionally hangs with no output.
 
 Creates or updates one PR comment, found by a hidden marker at the start of
 its body, so each run edits the same comment. The job needs
-`pull-requests: write`.
+`pull-requests: write`. It uses only `curl` and `jq`, so it also runs on
+lean self-hosted images without `gh`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
