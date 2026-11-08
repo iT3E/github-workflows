@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.6.0 - 2026-11-08
+
+### Added
+
+* `python.yaml`: `uv: true` sets Python up with uv (an activated .venv, `uv sync --locked` when there is a uv.lock, uv's cache) instead of setup-python. Off by default
+
 ## v1.5.0 - 2026-11-08
 
 ### Added
