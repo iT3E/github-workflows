@@ -114,6 +114,8 @@ jobs:
       context: tests/image
       dockerfile: tests/image/Dockerfile
       push-main: false
+      # Accepted here; it only acts on a push, which this job never does.
+      attest: true
       postgres: ${{ matrix.postgres }}
       test-command: |
         test "$(docker run --rm "$IMAGE_REF" ok)" = "ok"

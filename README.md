@@ -184,6 +184,7 @@ cache.
 | `test-command` | string | empty | bash against the local build (`$IMAGE_REF`) before any push |
 | `postgres` | boolean | `false` | a throwaway Postgres service (trust auth, user and database `postgres`) on `127.0.0.1:5432`, as `$TEST_POSTGRES_URL`; containers reach it with `--network host` |
 | `postgres-version` | string | `18` (pinned) | Postgres image tag |
+| `attest` | boolean | `false` | attach a mode=max SLSA provenance and an SBOM attestation to the pushed image |
 
 ### `privacy.yaml`: the denylist on the tree, commits and PR text
 

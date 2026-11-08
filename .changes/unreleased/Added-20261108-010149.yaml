@@ -1,0 +1,3 @@
+kind: Added
+body: '`image.yaml`: `attest: true` attaches a mode=max SLSA provenance and an SBOM to the pushed image (off by default for now). PR builds read the Actions cache but no longer write it'
+time: 2026-11-08T01:01:49.653214575-08:00
