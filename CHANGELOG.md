@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.8.1 - 2026-11-08
+
+### Fixed
+
+* Dependency updates: chore(deps): update zizmor to 1.32.0 (#20)
+
 ## v1.8.0 - 2026-11-08
 
 ### Added
