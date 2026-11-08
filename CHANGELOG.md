@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.7.0 - 2026-11-08
+
+### Added
+
+* `image.yaml`: `attest: true` attaches a mode=max SLSA provenance and an SBOM to the pushed image (off by default for now). PR builds read the Actions cache but no longer write it
+
 ## v1.6.0 - 2026-11-08
 
 ### Added
