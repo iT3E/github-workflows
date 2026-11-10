@@ -145,7 +145,7 @@ jobs:
       contents: read
     env:
       # renovate: datasource=github-releases depName=home-operations/flate
-      FLATE_VERSION: "0.6.5"
+      FLATE_VERSION: "0.7.3"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
