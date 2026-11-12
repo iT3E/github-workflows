@@ -85,6 +85,11 @@ Every workflow also takes two inputs that its tables don't repeat:
 | `runs-on` | string | `ubuntu-latest` | runner label for every job |
 | `timeout-minutes` | number | per workflow, below | timeout for each job |
 
+`actionlint`, `changelog`, `labeler`, `privacy`, `privacy-text`,
+`release`, `secret-scan` and `sync-labels` need no Docker and no gh CLI:
+they run on a self-hosted runner image such as `ghcr.io/actions/actions-runner`
+(bash, git, curl, tar, perl and python3).
+
 The `timeout-minutes` defaults are 5 for `changelog`, `labeler`,
 `privacy`, `privacy-text` and `sync-labels`; 10 for `actionlint`,
 `secret-scan` and `zizmor`; 15 for `release`; 30 for `go`, `python` and `node`; and
@@ -214,7 +219,7 @@ Job `privacy-text`. Caller grants `contents: read`, `issues: write` and
 GitHub can't refuse a comment, so this runs right after one is posted: a
 comment with a hit is deleted, a review body is replaced, and an issue
 only fails the run (an edit would keep the old text in its history). Bots
-are skipped. Callers trigger it on `issue_comment`,
+are skipped. The API calls use curl. Callers trigger it on `issue_comment`,
 `pull_request_review_comment`, `pull_request_review` and `issues`. Keep it
 a separate caller workflow from `privacy.yaml`, so a skipped run here
 never stands in for the `privacy` check on a PR head.
@@ -225,12 +230,12 @@ Job `betterleaks`. Caller grants `contents: read`. No secrets.
 
 betterleaks over the commits a PR adds (or a push to `main` adds), with
 the caller's config, redacted. The server-side twin of the pre-commit
-hook.
+hook. It runs the release binary, checked against the release's checksums.
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `config` | string | `.betterleaks.toml` | config file, relative to the repo root |
-| `betterleaks-version` | string | `v1.9.0` (pinned) | betterleaks container tag |
+| `betterleaks-version` | string | `v1.10.0` (pinned) | betterleaks release tag, with or without the `v` |
 
 ### `actionlint.yaml`: workflow lint
 
@@ -238,10 +243,14 @@ Job `actionlint`. Caller grants `contents: read`. No secrets.
 
 actionlint, with shellcheck on `run:` blocks, over the caller's
 workflows. App repos call it only on PRs that touch `.github/workflows/`.
+It runs the actionlint release binary, checked against the release's
+checksums, and the shellcheck release by its tag (shellcheck publishes no
+checksums).
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `actionlint-version` | string | `v1.7.12` (pinned) | actionlint container tag, with or without the `v` |
+| `actionlint-version` | string | `v1.7.12` (pinned) | actionlint release tag, with or without the `v` |
+| `shellcheck-version` | string | `v0.11.0` (pinned) | shellcheck release tag, with or without the `v` |
 
 ### `zizmor.yaml`: workflow security audit
 

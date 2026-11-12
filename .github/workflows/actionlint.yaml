@@ -5,14 +5,24 @@ name: "Actionlint"
 # the caller's workflows. One job, "actionlint". Callers trigger it only on
 # PRs that touch .github/workflows/, so most PRs never spend minutes on it.
 # Run the same check locally with `task lint` (Docker).
+#
+# No Docker: the job runs the actionlint release binary, checked against the
+# release's checksums, and the shellcheck release, so a self-hosted runner
+# without Docker runs it too. shellcheck publishes no checksums: its release
+# comes over HTTPS by its tag, as an image by its tag would.
 on:
   workflow_call:
     inputs:
       actionlint-version:
-        description: "actionlint release (container tag, with or without the v)."
+        description: "actionlint release tag, with or without the v."
         type: string
         # renovate: datasource=github-releases depName=rhysd/actionlint
         default: "v1.7.12"
+      shellcheck-version:
+        description: "shellcheck release tag, with or without the v, for the run: blocks."
+        type: string
+        # renovate: datasource=github-releases depName=koalaman/shellcheck
+        default: "v0.11.0"
       runs-on:
         description: "Runner label for every job."
         type: string
@@ -37,9 +47,36 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: actionlint
+      - name: Install actionlint and shellcheck
         env:
           ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
+          SHELLCHECK_VERSION: ${{ inputs.shellcheck-version }}
         run: |
-          docker run --rm -v "$PWD":/repo -w /repo \
-            "rhysd/actionlint:${ACTIONLINT_VERSION#v}" -color
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) al_arch=amd64; sc_arch=x86_64 ;;
+            aarch64) al_arch=arm64; sc_arch=aarch64 ;;
+            *) echo "::error::unsupported machine $(uname -m)"; exit 1 ;;
+          esac
+          dir="${RUNNER_TEMP}/actionlint"
+          mkdir -p "$dir"
+          cd "$dir"
+          v="${ACTIONLINT_VERSION#v}"
+          f="actionlint_${v}_linux_${al_arch}.tar.gz"
+          base="https://github.com/rhysd/actionlint/releases/download/v${v}"
+          curl -fsSL --retry 3 -o "$f" "${base}/${f}"
+          curl -fsSL --retry 3 -o checksums.txt "${base}/actionlint_${v}_checksums.txt"
+          # No line for the file fails the check, as a wrong sum does.
+          awk -v f="$f" '$2 == f' checksums.txt | sha256sum -c -
+          tar -xzf "$f" actionlint
+          s="${SHELLCHECK_VERSION#v}"
+          sf="shellcheck-v${s}.linux.${sc_arch}.tar.gz"
+          curl -fsSL --retry 3 -o "$sf" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${s}/${sf}"
+          tar -xzf "$sf" --strip-components=1 "shellcheck-v${s}/shellcheck"
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: actionlint
+        run: |
+          shellcheck --version | sed -n 2p
+          actionlint -color
