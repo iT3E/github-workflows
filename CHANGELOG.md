@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.9.0 - 2026-11-12
+
+### Changed
+
+* secret-scan and actionlint run their release binaries instead of a container, and privacy-text calls the API with curl instead of the gh CLI, so they run on a self-hosted runner with no Docker and no gh. actionlint has a new input, shellcheck-version
+
 ## v1.8.1 - 2026-11-08
 
 ### Fixed

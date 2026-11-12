@@ -1,3 +1,0 @@
-kind: Changed
-body: 'secret-scan and actionlint run their release binaries instead of a container, and privacy-text calls the API with curl instead of the gh CLI, so they run on a self-hosted runner with no Docker and no gh. actionlint has a new input, shellcheck-version'
-time: 2026-11-12T08:00:00.000000000Z
