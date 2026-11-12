@@ -23,7 +23,7 @@ env:
   # renovate: datasource=pypi depName=yamllint
   YAMLLINT_VERSION: "1.38.0"
   # renovate: datasource=npm depName=renovate
-  RENOVATE_VERSION: "44.222.4"
+  RENOVATE_VERSION: "44.222.5"
 
 jobs:
   lint:
