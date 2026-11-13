@@ -37,7 +37,7 @@ on:
         description: "ruff version from PyPI."
         type: string
         # renovate: datasource=pypi depName=ruff
-        default: "0.17.4"
+        default: "0.17.5"
       test-command:
         description: "Test command (bash, in working-directory). Empty: none."
         type: string
