@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.9.2 - 2026-11-13
+
+### Fixed
+
+* Dependency updates: fix(github-release): update betterleaks/betterleaks to v1.10.1 (#30)
+
 ## v1.9.1 - 2026-11-13
 
 ### Fixed
