@@ -340,6 +340,69 @@ class Unicode(Repo):
         self.assert_quiet(r)
 
 
+class InvalidBytes(Repo):
+    """A byte that isn't UTF-8 next to a term doesn't hide the line."""
+
+    assert_quiet = Output.assert_quiet
+
+    def write(self, name, data: bytes):
+        (self.dir / name).write_bytes(data)
+        self.git("add", ".")
+
+    def test_content_lines(self):
+        value = encode(LEGACY, self.dir)
+        self.write("before.txt", b"caf\xe9 zorbexa\n")
+        self.write("after.txt", b"plain\nZORBEXA caf\xe9\n")
+        self.write("nonascii.txt", b"\xff BR\xc3\x96KVANE \xfe\n")
+        self.write("allowed.txt", b"caf\xe9 zorbexa privacy:allow\n")
+        for args in ([], ["--cached"]):
+            with self.subTest(args=args):
+                r = self.check(value, *args)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assert_quiet(r)
+                hits = r.stdout.strip().splitlines()
+                self.assertIn("hit: before.txt:1", hits)
+                self.assertIn("hit: after.txt:2", hits)
+                self.assertIn("hit: nonascii.txt:1", hits)
+                self.assertNotIn("hit: allowed.txt:1", hits)
+                self.assertNotIn("binary", r.stdout + r.stderr)
+
+    def test_allowed_line_stays_allowed(self):
+        self.write("allowed.txt", b"caf\xe9 zorbexa privacy:allow\n")
+        r = self.check(encode(LEGACY, self.dir))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_path_message_and_commit(self):
+        value = encode(LEGACY, self.dir)
+        name = os.fsdecode(b"caf\xe9-zorbexa.txt")
+        self.write(name, b"plain\n")
+        msg = self.dir / "msg.bin"
+        msg.write_bytes(b"about caf\xe9 zorbexa\n")
+        self.git("commit", "-q", "-F", str(msg))
+        r = self.check(value, "--commits", "HEAD~1..HEAD")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assert_quiet(r)
+        hits = r.stdout.strip().splitlines()
+        self.assertIn("hit: path caf\ufffd-[term].txt", hits)
+        self.assertEqual(sum(1 for h in hits if h.startswith("hit: commit ")), 1)
+        r = self.check(value, "--message", str(msg))
+        self.assertEqual(r.stdout.strip(), "hit: commit message")
+
+    def test_binary_file_is_skipped_as_released(self):
+        # git grep -I skips a binary file (a zero byte), here and in the
+        # released script: a term inside one is no content hit. A term in
+        # its path still is.
+        value = encode(LEGACY, self.dir)
+        self.write("blob.dat", b"\x00\x01zorbexa\x00\xff\n")
+        for script in (SCRIPT, OLD_SCRIPT):
+            with self.subTest(script=script.name):
+                r = self.check(LEGACY if script == OLD_SCRIPT else value, script=script)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.write("zorbexa.dat", b"\x00\x01\x00\n")
+        r = self.check(value)
+        self.assertEqual(r.stdout.strip().splitlines(), ["hit: path [term].dat"])
+
+
 class FailedSearch(Repo):
     """A search tool that fails stops the check with exit 2 and prints
     nothing it was given."""
