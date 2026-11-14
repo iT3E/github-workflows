@@ -309,13 +309,65 @@ Secret `RELEASE_APP_PRIVATE_KEY`, only with `app-client-id`. Output
 
 1. Batches `.changes/unreleased/` into `.changes/<version>.md` and
    `CHANGELOG.md`.
-2. Commits `chore(release): <version>`, pushes it to `main` (rebasing onto
-   a moved `main`, up to 5 tries), tags it (annotated) and pushes the tag.
-3. Publishes a GitHub Release with the version's notes.
-4. Dispatches `build-workflow` on the tag, since a tag pushed with
-   `GITHUB_TOKEN` starts no workflow.
+2. Commits `chore(release): <version>` and pushes it to `main` (rebasing
+   onto a moved `main`, up to 5 tries).
+3. Tags the commit that added `.changes/<version>.md` (annotated) and
+   pushes the tag (up to 5 tries, with a backoff).
+4. Dispatches `build-workflow` on the tag, unless the tag already has a
+   run of it, since a tag pushed with `GITHUB_TOKEN` starts no workflow.
+5. Publishes a GitHub Release with the version's notes.
 
-Nothing happens without fragments. The version is Changie's next for
+**A half-made release finishes itself.** Steps 3 to 5 run on every run,
+for the two newest `.changes/v*.md` on `main`, and do only what is
+missing. The GitHub Release comes last, so a version that has one is
+finished: checking costs one API call per version, so two per run. If a
+run dies after the commit push (a rejected tag push, an API error), the
+next run finishes the version. To recover, dispatch the caller's Release
+workflow on `main` with no note (`gh workflow run release.yaml --ref
+main`), or wait for the next push to `main`. Re-run the failed run only
+when it had no `fragment-body` (no note): a re-run reuses its inputs, so
+it adds that fragment again and cuts one more release. app-repo-template
+passes `fragment-body` when Renovate moves its pin, so don't re-run those.
+No hand work is needed: do not tag, release or dispatch the build by
+hand. The step summary lists what it finished. Its guards:
+
+- Each version is finished on its own: a failure on the older one does
+  not stop the newer one. The run then fails and names the version it
+  could not finish.
+- It never moves a tag. A remote tag at another commit fails that version
+  and changes nothing for it; that one needs a person.
+- It tags only the commit on `main` that added the version file, and
+  releases only a version whose file is on `main`. A release is made only
+  once its tag is on the remote.
+- A tag push that another run beat, and a release that another run made,
+  count as done. The build is dispatched only when the tag has no run of
+  `build-workflow` (from any event), so a tag is not built twice. A tag
+  the app token pushes does start workflows: the run waits up to 30
+  seconds for that run before it dispatches.
+- The newest version is the latest release; an older one it finishes is
+  not marked latest.
+
+It looks at two versions, not one, because in a repo that runs the release
+only on pushes that add fragments, the next run that comes is a release
+run. With no versions yet (a new repo), it does nothing.
+
+What changed for callers in v1.9.3:
+
+- The build is dispatched before the GitHub Release. A dispatch that
+  fails (for example, a `build-workflow` without `workflow_dispatch`)
+  stops the release of that version until it is fixed, and every run
+  fails until then.
+- A run with no fragments can now fail: an API error, or a tag at
+  another commit, for one of the two newest versions.
+- `build-workflow` must be a file name (`build.yaml`) or a numeric
+  workflow id. A display name (`Build`), which `gh workflow run` used to
+  accept, now fails every run.
+- The job needs `curl` and `python3`, and no longer the gh CLI.
+- The steps "Commit, tag, push", "GitHub Release" and "Build for the tag"
+  are gone: now "Git identity", "Commit and push" and "Finish the
+  release".
+
+Nothing new is released without fragments. The version is Changie's next for
 `bump` (`auto`: the highest fragment kind), or `first-version` while
 `.changes/` has no `v*.md`. Callers trigger it on pushes to `main` (every
 push when `auto-fragment` is set, else those touching
@@ -325,17 +377,20 @@ commit only while no ruleset blocks it. When one does, set `app-client-id`
 and pass `RELEASE_APP_PRIVATE_KEY`: a GitHub App the ruleset lets bypass
 it pushes the commit and tag and publishes the release, with a token
 scoped to `contents: write` on the calling repo. The commit is authored
-by `<app-slug>[bot]`.
+by `<app-slug>[bot]`. The API calls use curl, not the gh CLI.
 
 **Automatic releases for bot PRs.** Renovate and Dependabot PRs carry no
 fragment (`changelog.yaml` waives it), so on their own they would never
 ship. With `auto-fragment` set, when no fragment is pending and a commit
-since the last `v*` tag was authored by `renovate[bot]` or
-`dependabot[bot]` and changed a path in `ship-paths`, the workflow adds
-one `auto-fragment-kind` fragment, `<auto-fragment>: <their commit
+since the last release commit (the one that added the newest
+`.changes/v*.md`) was authored by `renovate[bot]` or `dependabot[bot]`
+and changed a path in `ship-paths`, the workflow adds one
+`auto-fragment-kind` fragment, `<auto-fragment>: <their commit
 subjects>`, and releases (a patch with the default `Fixed`). It looks at
-every commit since the tag, not only the pushed one, so a run that
-`concurrency` dropped is caught up by the next. A person's commit never
+every commit since that release commit, not only the pushed one, so a run
+that `concurrency` dropped is caught up by the next. It counts from the
+commit, not the tag, so a release whose tag is still missing doesn't ship
+its bot commits a second time. A person's commit never
 triggers it (a human PR brings its own fragment), and neither does a bot
 commit outside `ship-paths`, such as a template update or a CI-only bump.
 The default `ship-paths` is every path except the docs (`*.md`),
@@ -348,7 +403,7 @@ app repo whose image is built from the rest.
 | --- | --- | --- | --- |
 | `bump` | string | `auto` | `auto`, `patch`, `minor` or `major` |
 | `first-version` | string | `v0.1.0` | the first release |
-| `build-workflow` | string | `build.yaml` | caller workflow file to dispatch on the tag; empty: none |
+| `build-workflow` | string | `build.yaml` | caller workflow file name, or numeric workflow id, to dispatch on the tag (not a display name); empty: none |
 | `changie-version` | string | `v1.26.0` (pinned) | Changie release |
 | `fragment-kind` | string | `Changed` | kind of the `fragment-body` fragment |
 | `fragment-body` | string | empty | add one fragment with this text before releasing; app-repo-template uses it to release when Renovate moves its pin of this repo |
@@ -530,10 +585,15 @@ Every PR runs, with the workflows from the PR itself (local paths):
   [`tests/node`](tests/node) (every check with `node-version`, then the
   defaults with `node-version-file`), and
   `image.yaml` on [`tests/image`](tests/image) with and without its
-  Postgres service. The test image is never pushed.
-- `Self: Lint`: yamllint, shellcheck on `bin/*`, a check that every
-  reusable workflow is `workflow_call` only, starts from `permissions:
-  {}` and pins actions as `@<sha> # vX.Y.Z`, and
+  Postgres service. The test image is never pushed. And
+  [`tests/release/finish-test.sh`](tests/release/finish-test.sh): the
+  script of `release.yaml`'s "Finish the release" step, taken from the
+  workflow with yq, run against a throwaway bare repo with the API
+  stubbed, for each half-made release case, plus the `auto-fragment`
+  baseline. It runs locally too.
+- `Self: Lint`: yamllint, shellcheck on `bin/*` and the release test, a
+  check that every reusable workflow is `workflow_call` only, starts from
+  `permissions: {}` and pins actions as `@<sha> # vX.Y.Z`, and
   `renovate-config-validator --strict` on the presets and this repo's
   config.
 - `Self: Actionlint`, `Self: Secret Scan` (betterleaks), `Self: Privacy`,
@@ -562,7 +622,11 @@ own, "Dependency updates: <subject>", and flows on to app-repo-template.
 One that only touches this repo's own CI, hooks or Taskfile releases
 nothing and ships with the next release. `Self: Release` can also be run
 by hand with a `note` (it becomes a `Fixed` fragment unless you pick
-another kind).
+another kind). If a release run fails after its commit reached `main`,
+start a new `Self: Release` run with no note: it finishes the tag and the
+GitHub Release (see [`release.yaml`](#releaseyaml-changie-release)).
+Re-run the failed run only if it had no note: a re-run reuses the note,
+adds it as a fragment again and cuts one more release.
 
 ## Privacy
 

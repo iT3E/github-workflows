@@ -2,10 +2,10 @@
 name: "Self: Lint"
 
 # The repo's own lint, on every PR and push to main:
-#   lint      yamllint; shellcheck on bin/* and the actions' scripts; every
-#             reusable workflow is workflow_call only, starts from
-#             permissions: {}, and pins third-party actions to a commit
-#             SHA, and so does every composite action in actions/. Every job
+#   lint      yamllint; shellcheck on bin/*, the actions' scripts and
+#             tests/release/finish-test.sh; every reusable workflow is
+#             workflow_call only, starts from permissions: {}, and pins
+#             third-party actions to a commit SHA, and so does every composite action in actions/. Every job
 #             that runs steps has timeout-minutes, and a reusable workflow's
 #             jobs take runs-on and timeout-minutes from its inputs.
 #   zizmor    zizmor.yaml (this repo's reusable one) on every workflow and
@@ -44,7 +44,7 @@ jobs:
             .github actions tests/flux .yamllint.yaml .changie.yaml .pre-commit-config.yaml Taskfile.yml
 
       - name: shellcheck
-        run: shellcheck bin/* actions/setup-flate/flate-guard
+        run: shellcheck bin/* actions/setup-flate/flate-guard tests/release/finish-test.sh
 
       # The files app repos call: everything in .github/workflows/ except
       # this repo's own self-*.yaml.

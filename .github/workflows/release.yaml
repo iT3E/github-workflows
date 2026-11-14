@@ -5,12 +5,24 @@ name: "Release"
 # One job, "release":
 #   1. batch .changes/unreleased/ into .changes/<version>.md and CHANGELOG.md
 #   2. commit "chore(release): <version>" and push it to main (rebasing onto
-#      a moved main, up to 5 tries), then tag it (annotated) and push the tag
-#   3. publish a GitHub Release with the version's notes
-#   4. if build-workflow is set, dispatch it on the tag: a tag pushed with
-#      GITHUB_TOKEN triggers no workflow, so this is how the tag's image gets
-#      built
-# Nothing happens when there are no fragments.
+#      a moved main, up to 5 tries)
+#   3. tag the commit that added .changes/<version>.md (annotated) and push
+#      the tag (up to 5 tries, with a backoff)
+#   4. if build-workflow is set and the tag has no run of it yet, dispatch it
+#      on the tag: a tag pushed with GITHUB_TOKEN triggers no workflow, so
+#      this is how the tag's image gets built
+#   5. publish a GitHub Release with the version's notes
+# Steps 3 to 5 ("Finish the release") run on every run, for the two newest
+# .changes/v*.md on main, each on its own, and do only what is missing. The
+# GitHub Release comes last, so a version with one is finished. A run that
+# died after the commit push (a rejected tag push, an API error) is
+# finished by the next push to main, or by a workflow_dispatch on main with
+# no fragment-body (no note). No hand work. Re-run a failed run only when
+# it had no fragment-body: a re-run reuses its inputs, so it adds that
+# fragment again and cuts one more release. That step never moves a tag (a
+# tag at another commit is an error), tags only a commit on main, and
+# releases only a version whose file is on main. With nothing to release
+# or finish, it costs one API call per version (two).
 #
 # fragment-body adds one more fragment (of fragment-kind) before step 1, for
 # a release no PR wrote a fragment for: app-repo-template passes one when a
@@ -18,7 +30,8 @@ name: "Release"
 # template release.
 #
 # auto-fragment releases what dependency bots merged. When no fragment is
-# pending, and a commit since the last v* tag was authored by renovate[bot]
+# pending, and a commit since the last release commit (the one that added
+# the newest .changes/v*.md) was authored by renovate[bot]
 # or dependabot[bot] and changed a file in ship-paths, it adds one
 # auto-fragment-kind fragment: "<auto-fragment>: <their subjects>". Bot PRs
 # carry no fragment (changelog.yaml waives it), so without this their
@@ -27,8 +40,10 @@ name: "Release"
 # ships (the image, or the files consumers pin); the default is every path
 # except the repo tooling app-repo-template manages and the docs, so a
 # template update or a CI-only bump releases nothing. The check covers every
-# commit since the last tag, not just the pushed one, so a release run that
-# concurrency dropped (only one waits) is caught up by the next.
+# commit since the last release commit, not just the pushed one, so a
+# release run that concurrency dropped (only one waits) is caught up by the
+# next. It counts from the release commit, not the tag, so a release whose
+# tag is still missing doesn't ship its bot commits a second time.
 #
 # The version is changie's next for bump (auto: the highest fragment kind),
 # or first-version while .changes/ has no v*.md yet.
@@ -40,7 +55,13 @@ name: "Release"
 # commit only while main has no ruleset that blocks it. When one does, set
 # app-client-id and pass RELEASE_APP_PRIVATE_KEY: a GitHub App the ruleset
 # lets bypass it then pushes the commit and tag and publishes the release,
-# with a token scoped to contents: write on the calling repo.
+# with a token scoped to contents: write on the calling repo. A tag the app
+# pushes does start workflows, so before it dispatches build-workflow the
+# run waits up to 30 seconds for a run the tag push started, and builds the
+# tag once. The concurrency group is not what keeps the tag safe: a second
+# run at the same time finds the tag or the release already made and
+# counts it as done (it could dispatch a second build, which concurrency
+# prevents). The API calls use curl, not the gh CLI.
 on:
   workflow_call:
     inputs:
@@ -53,7 +74,7 @@ on:
         type: string
         default: "v0.1.0"
       build-workflow:
-        description: "Caller workflow file to dispatch on the new tag. Empty: none."
+        description: "Caller workflow file (build.yaml) or numeric workflow id to dispatch on the new tag; not a display name. Empty: none."
         type: string
         default: "build.yaml"
       changie-version:
@@ -70,7 +91,7 @@ on:
         type: string
         default: ""
       auto-fragment:
-        description: "Text of the fragment added when bot commits since the last tag changed ship-paths and no fragment is pending. Empty: off."
+        description: "Text of the fragment added when bot commits since the last release changed ship-paths and no fragment is pending. Empty: off."
         type: string
         default: ""
       auto-fragment-kind:
@@ -151,6 +172,26 @@ jobs:
           token: ${{ steps.app-token.outputs.token || github.token }}
           persist-credentials: true
 
+      # Who makes the release commit and the annotated tag.
+      - name: Git identity
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if [ -n "$APP_SLUG" ]; then
+            bot_id="$(curl -fsS --retry 3 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/users/${APP_SLUG}%5Bbot%5D" |
+              python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')"
+            git config user.name "${APP_SLUG}[bot]"
+            git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          fi
+
       # A plain fragment file, as changie new writes it (kind, body, time).
       - name: Add fragment-body
         if: inputs.fragment-body != ''
@@ -188,7 +229,9 @@ jobs:
             echo "Fragments pending; they cover this release."
             exit 0
           fi
-          last="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)"
+          # The last release commit: the one that added the newest version
+          # file. Not the last tag, which a half-made release lacks.
+          last="$(git log -1 --format=%H --diff-filter=A HEAD -- '.changes/v*.md')"
           if [ -z "$last" ]; then
             echo "No release yet; the first one needs a fragment."
             exit 0
@@ -216,7 +259,7 @@ jobs:
             fi
           done < <(git log --no-merges --reverse --format='%H%x09%an%x09%s' "${last}..HEAD")
           if [ "${#subjects[@]}" -eq 0 ]; then
-            echo "No bot commit since ${last} changed ship-paths; nothing to release."
+            echo "No bot commit since ${last:0:12} ($(git log -1 --format=%s "$last")) changed ship-paths; nothing to release."
             exit 0
           fi
           note="${BODY}: $(printf '%s; ' "${subjects[@]}")"
@@ -243,7 +286,7 @@ jobs:
           if compgen -G ".changes/unreleased/*.yaml" > /dev/null; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No unreleased fragments; nothing to release."
+            echo "No unreleased fragments; nothing new to release."
           fi
 
       - name: Next version
@@ -287,26 +330,17 @@ jobs:
           version: ${{ inputs.changie-version }}
           args: merge
 
-      - name: Commit, tag, push
+      - name: Commit and push
         if: steps.pending.outputs.found == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          if [ -n "$APP_SLUG" ]; then
-            bot_id="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
-            git config user.name "${APP_SLUG}[bot]"
-            git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          fi
           git add -A .changes CHANGELOG.md
           git commit -m "chore(release): ${VERSION}"
           # main can move between checkout and push (another merge landing).
           # The release commit only touches .changes/ and CHANGELOG.md, so
-          # rebase onto the new tip and retry; tag only what was pushed.
+          # rebase onto the new tip and retry. The next step tags what main
+          # has, not this checkout.
           for attempt in 1 2 3 4 5; do
             if git push origin HEAD:main; then
               break
@@ -318,24 +352,227 @@ jobs:
             git fetch origin main
             git rebase origin/main
           done
-          git tag -a "${VERSION}" -m "${VERSION}"
-          git push origin "${VERSION}"
 
-      - name: GitHub Release
-        if: steps.pending.outputs.found == 'true'
+      # Tag, build and GitHub Release for the two newest .changes/v*.md on
+      # main, oldest first: the one this run just committed, and the one
+      # before it (or, with nothing to release, the newest two). The GitHub
+      # Release is made last, so it marks a finished version: a version
+      # with one is skipped after one API call, and a version without one
+      # gets whatever it still lacks. That is how a run that died after the
+      # commit push is finished by the next push to main, or a
+      # workflow_dispatch on main with no fragment-body (see the top of this
+      # file for re-runs). Each version is finished on its own, and the step
+      # fails at the end if one could not be. Every action is safe to
+      # repeat: the tag push never moves a tag, the build is dispatched only
+      # when the tag has no build-workflow run yet, and an existing release
+      # counts as made. The API calls use curl, so no gh CLI is needed.
+      - name: Finish the release
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-        run: |
-          gh release create "${VERSION}" --title "${VERSION}" \
-            --notes-file ".changes/${VERSION}.md" --verify-tag
-
-      - name: Build for the tag
-        if: steps.pending.outputs.found == 'true' && inputs.build-workflow != ''
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+          NEW_VERSION: ${{ steps.version.outputs.version }}
           BUILD_WORKFLOW: ${{ inputs.build-workflow }}
-          GH_TOKEN: ${{ github.token }}
+          APP_PUSH: ${{ inputs.app-client-id != '' }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          ACTIONS_TOKEN: ${{ github.token }}
         run: |
-          gh workflow run "${BUILD_WORKFLOW}" --ref "${VERSION}"
-          echo "Dispatched ${BUILD_WORKFLOW} on ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          body="$(mktemp)"
+          # It goes into an API path: a file name (build.yaml) or a numeric
+          # workflow id, never a display name or a path like "..".
+          if [ -n "$BUILD_WORKFLOW" ] && ! [[ "$BUILD_WORKFLOW" =~ ^[A-Za-z0-9._-]+\.ya?ml$ || "$BUILD_WORKFLOW" =~ ^[0-9]+$ ]]; then
+            echo "::error::build-workflow '$BUILD_WORKFLOW' is not a workflow file name (such as build.yaml) or a numeric workflow id"
+            exit 1
+          fi
+
+          # finish runs in an "if !", where bash ignores set -e inside it and
+          # inside everything it calls. So finish and its helpers check every
+          # command whose failure must stop that version (|| return 1, or a
+          # status that falls to an error branch).
+
+          # api METHOD PATH TOKEN [curl args]: prints the HTTP status, and
+          # leaves the response in $body. Fails when curl gets no response.
+          api() {
+            local method="$1" path="$2" token="$3"
+            shift 3
+            curl -sS -o "$body" -w '%{http_code}' -X "$method" \
+              -H "Authorization: Bearer ${token}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$@" "${GITHUB_API_URL}/${path}"
+          }
+
+          # The commit the remote's tag $1 points at, or nothing. Fails when
+          # git ls-remote fails (pipefail).
+          remote_tag() {
+            git ls-remote --tags origin "refs/tags/$1" "refs/tags/$1^{}" |
+              awk -v t="refs/tags/$1" '$2 == t { c = $1 } $2 == t "^{}" { p = $1 } END { print (p != "" ? p : c) }'
+          }
+
+          # Push tag $1, made locally at $2. A rejected push is retried with
+          # a backoff; a remote that has the tag at $2 by then is success,
+          # at any other commit an error. Without --force, git never
+          # replaces a remote tag.
+          push_tag() {
+            local v="$1" sha="$2" attempt remote
+            for attempt in 1 2 3 4 5; do
+              if git push origin "refs/tags/${v}"; then
+                return 0
+              fi
+              # A remote that can't be read is no answer: push again.
+              remote="$(remote_tag "$v")" || remote=""
+              if [ "$remote" = "$sha" ]; then
+                echo "The remote has ${v} at ${sha:0:12}."
+                return 0
+              fi
+              if [ -n "$remote" ]; then
+                echo "::error::the remote has ${v} at ${remote}, not ${sha}; a tag never moves"
+                return 1
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "::error::pushing tag ${v} failed $attempt times; the next run of this workflow retries it"
+                return 1
+              fi
+              sleep $((2 ** attempt))
+            done
+          }
+
+          # How many build-workflow runs the tag $1 has (any event).
+          build_runs() {
+            local status
+            status="$(api GET "repos/${repo}/actions/workflows/${BUILD_WORKFLOW}/runs?branch=$1&per_page=1" "$ACTIONS_TOKEN" --retry 3)" || status="no response"
+            if [ "$status" != 200 ]; then
+              echo "::error::listing ${BUILD_WORKFLOW} runs for $1: HTTP ${status} $(cat "$body")" >&2
+              return 1
+            fi
+            if ! python3 -c 'import json, sys; print(int(json.load(open(sys.argv[1]))["total_count"]))' "$body" 2> /dev/null; then
+              echo "::error::listing ${BUILD_WORKFLOW} runs for $1: the answer has no run count: $(head -c 300 "$body")" >&2
+              return 1
+            fi
+          }
+
+          # Finish version $1; $2 is make_latest for its GitHub Release.
+          finish() {
+            local v="$1" latest="$2" file sha status tag runs n payload notes refused
+            local pushed=false did=()
+            file=".changes/${v}.md"
+            status="$(api GET "repos/${repo}/releases/tags/${v}" "$GH_TOKEN" --retry 3)" || status="no response"
+            case "$status" in
+              200) echo "${v}: released."; return 0 ;;
+              404) ;;
+              *) echo "::error::${v}: reading its GitHub Release: HTTP ${status} $(cat "$body")"; return 1 ;;
+            esac
+            # The commit that added the version file, on main.
+            sha="$(git log -1 --format=%H --diff-filter=A origin/main -- "$file")" || return 1
+            if [ -z "$sha" ] || ! git merge-base --is-ancestor "$sha" origin/main; then
+              echo "::error::${v}: no commit on main added ${file}"
+              return 1
+            fi
+            echo "${v}: no GitHub Release yet; finishing it at ${sha:0:12} ($(git log -1 --format=%s "$sha"))"
+
+            if ! tag="$(remote_tag "$v")"; then
+              echo "::error::${v}: could not read the remote tag"
+              return 1
+            fi
+            if [ "$tag" = "$sha" ]; then
+              echo "${v}: the tag is there."
+            elif [ -n "$tag" ]; then
+              echo "::error::${v}: the remote tag is at ${tag}, not at ${sha}, the commit on main that added ${file}. A tag never moves: check it by hand."
+              return 1
+            else
+              # Local only: the checkout may hold a stale copy.
+              git tag -f -a "$v" -m "$v" "$sha" || return 1
+              push_tag "$v" "$sha" || return 1
+              pushed=true
+              did+=("pushed tag ${v} at ${sha:0:12}")
+            fi
+
+            if [ -n "$BUILD_WORKFLOW" ]; then
+              runs="$(build_runs "$v")" || return 1
+              # A tag pushed with GITHUB_TOKEN starts no workflow. One pushed
+              # with the app token starts build-workflow if it triggers on
+              # tags, a few seconds later: wait for that run rather than
+              # build the tag twice.
+              if [ "$pushed" = true ] && [ "$APP_PUSH" = true ]; then
+                for n in 1 2 3 4 5 6; do
+                  if [ "$runs" -gt 0 ]; then break; fi
+                  echo "${v}: waiting for a ${BUILD_WORKFLOW} run from the tag push (${n}/6)"
+                  sleep 5
+                  runs="$(build_runs "$v")" || return 1
+                done
+              fi
+              if [ "$runs" -gt 0 ]; then
+                echo "${v}: ${BUILD_WORKFLOW} has run on the tag; not dispatching it again."
+              else
+                status="$(api POST "repos/${repo}/actions/workflows/${BUILD_WORKFLOW}/dispatches" "$ACTIONS_TOKEN" --data-binary "{\"ref\":\"${v}\"}")" || status="no response"
+                if [ "$status" != 204 ] && [ "$status" != 200 ]; then
+                  echo "::error::${v}: dispatching ${BUILD_WORKFLOW}: HTTP ${status} $(cat "$body")"
+                  return 1
+                fi
+                did+=("dispatched ${BUILD_WORKFLOW} on ${v}")
+              fi
+            fi
+
+            # Without the tag, the API would make one at main's tip.
+            tag="$(remote_tag "$v")" || tag="unknown"
+            if [ "$tag" != "$sha" ]; then
+              echo "::error::${v}: the remote tag is not at ${sha} (${tag:-none}); no GitHub Release made"
+              return 1
+            fi
+            notes="$(mktemp)" || return 1
+            git show "${sha}:${file}" > "$notes" || return 1
+            payload="$(python3 -c 'import json, sys; print(json.dumps({"tag_name": sys.argv[1], "name": sys.argv[1], "body": open(sys.argv[3]).read(), "make_latest": sys.argv[2]}))' "$v" "$latest" "$notes")" || return 1
+            status="$(api POST "repos/${repo}/releases" "$GH_TOKEN" --data-binary "$payload")" || status="no response"
+            if [ "$status" = 422 ]; then
+              # Another run may have made it first.
+              refused="$(cat "$body")"
+              if [ "$(api GET "repos/${repo}/releases/tags/${v}" "$GH_TOKEN" --retry 3)" = 200 ]; then
+                status=200
+              fi
+            fi
+            case "$status" in
+              200) echo "${v}: another run made the GitHub Release." ;;
+              201) did+=("published GitHub Release ${v}") ;;
+              422) echo "::error::${v}: creating its GitHub Release: HTTP 422 ${refused}"; return 1 ;;
+              *) echo "::error::${v}: creating its GitHub Release: HTTP ${status} $(cat "$body")"; return 1 ;;
+            esac
+
+            if [ "${#did[@]}" -gt 0 ]; then
+              if [ "$v" = "$NEW_VERSION" ]; then
+                echo "### Released ${v}"
+              else
+                echo "### Finished ${v}, which an earlier run left half made"
+              fi >> "$GITHUB_STEP_SUMMARY"
+              printf -- '- %s\n' "${did[@]}" >> "$GITHUB_STEP_SUMMARY"
+              printf -- '- %s\n' "${did[@]}"
+            fi
+          }
+
+          git fetch --quiet origin main
+          mapfile -t versions < <(git ls-tree --name-only origin/main .changes/ |
+            sed -n 's|^\.changes/\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\.md$|\1|p' | sort -V | tail -n 2)
+          if [ "${#versions[@]}" -eq 0 ]; then
+            echo "No version on main yet; nothing to finish."
+            exit 0
+          fi
+          newest="${versions[${#versions[@]}-1]}"
+          if [ -n "$NEW_VERSION" ] && [ "$NEW_VERSION" != "$newest" ]; then
+            echo "::error::this run released ${NEW_VERSION}, but the newest version on main is ${newest}"
+            exit 1
+          fi
+          # Oldest first, and only the newest becomes the latest release
+          # (make_latest is explicit for each). Each version is finished on
+          # its own: a failure on one doesn't stop the other, and the step
+          # fails at the end. The next run tries the failed one again.
+          failed=()
+          for v in "${versions[@]}"; do
+            latest=false
+            if [ "$v" = "$newest" ]; then latest=true; fi
+            if ! finish "$v" "$latest"; then
+              failed+=("$v")
+              echo "### ${v} is not finished: see the error in the log" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::not finished: ${failed[*]}; the next run of this workflow tries again"
+            exit 1
+          fi
