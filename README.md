@@ -218,8 +218,10 @@ Job `privacy-text`. Caller grants `contents: read`, `issues: write` and
 
 GitHub can't refuse a comment, so this runs right after one is posted: a
 comment with a hit is deleted, a review body is replaced, and an issue
-only fails the run (an edit would keep the old text in its history). Bots
-are skipped. The API calls use curl. Callers trigger it on `issue_comment`,
+only fails the run (an edit would keep the old text in its history). It
+runs only for text by the repository's owner, members and collaborators
+(`author_association`); anyone else's text is left to a person. Bots are
+skipped. A check that can't run fails the run and changes nothing. The API calls use curl. Callers trigger it on `issue_comment`,
 `pull_request_review_comment`, `pull_request_review` and `issues`. Keep it
 a separate caller workflow from `privacy.yaml`, so a skipped run here
 never stands in for the `privacy` check on a PR head.

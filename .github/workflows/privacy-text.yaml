@@ -9,9 +9,13 @@ name: "Privacy (comments)"
 # GitHub can't refuse a comment, so this runs right after it's posted: a
 # comment with a hit is deleted (deleting also drops its edit history), a
 # review body is replaced, and an issue only fails the run, since editing it
-# would keep the old text in its history. Bots are skipped (Renovate's text
-# is third-party release notes). The API calls use curl, not the gh CLI, so
-# a self-hosted runner without gh runs it too.
+# would keep the old text in its history. It runs only for text written by
+# the repository's owner, members and collaborators (author_association);
+# text by anyone else is left to a person. Bots are skipped (Renovate's text
+# is third-party release notes). Hits print as "hit: text", with nothing
+# about which term. A check that can't run (exit 2) fails the run and
+# deletes nothing. The API calls use curl, not the gh CLI, so a self-hosted
+# runner without gh runs it too.
 #
 # The caller triggers on issue_comment, pull_request_review_comment,
 # pull_request_review and issues, and grants issues: write and
@@ -37,7 +41,10 @@ permissions: {}
 jobs:
   text:
     name: privacy-text
-    if: github.event.sender.type != 'Bot'
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+        github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association)
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
@@ -75,8 +82,14 @@ jobs:
             issues) text="$ISSUE_TEXT" ;;
             *) echo "::error::unsupported event $EVENT"; exit 1 ;;
           esac
-          if printf '%s' "$text" | bin/privacy-check --text; then
+          st=0
+          printf '%s' "$text" | bin/privacy-check --text || st=$?
+          if [ "$st" -eq 0 ]; then
             exit 0
+          fi
+          if [ "$st" -ne 1 ]; then
+            echo "::error::The privacy check could not run (exit $st); nothing was changed: $URL"
+            exit 1
           fi
           api() {
             curl -fsS -o /dev/null -X "$1" \

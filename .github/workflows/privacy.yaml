@@ -7,8 +7,9 @@ name: "Privacy"
 # body. One job, "privacy".
 #
 # The list is the caller's PRIVACY_TERMS secret, copied from tnwks-ops
-# (`task privacy:sync` in the caller). Hits print as "term #N: path:line"
-# without the matched text. Comments and reviews are privacy-text.yaml.
+# (`task privacy:sync` in the caller), as the plain list or its opaque
+# one-line form. Hits print as "hit: path:line", without the matched text
+# or which term. Comments and reviews are privacy-text.yaml.
 # Exceptions: the caller's .github/privacy-allow (files only).
 #
 # Commit range: a PR checks base..head; a push to main checks before..HEAD
