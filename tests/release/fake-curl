@@ -7,6 +7,7 @@
   dispatches            one line per workflow dispatch
   race-release          the next create finds the release made: 422
   refuse-release        every create is refused: 422, and no release
+  bad-runs              listing runs answers 200 with a body that isn't JSON
   log                   every request, "METHOD path?query"
 
 It prints the HTTP status (the step calls curl -w '%{http_code}') and
@@ -83,6 +84,12 @@ if method == "POST" and rest == ["releases"]:
         json.dump(d, f)
     respond(201, d)
 if method == "GET" and rest[:2] == ["actions", "workflows"] and rest[3:] == ["runs"]:
+    if os.path.exists(os.path.join(state, "bad-runs")):
+        if out:
+            with open(out, "w") as f:
+                f.write("<html>not json</html>")
+        sys.stdout.write("200")
+        sys.exit(0)
     p = os.path.join(runs, query["branch"][0])
     n = 0
     if os.path.exists(p):

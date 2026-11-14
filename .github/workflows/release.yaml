@@ -13,14 +13,16 @@ name: "Release"
 #      this is how the tag's image gets built
 #   5. publish a GitHub Release with the version's notes
 # Steps 3 to 5 ("Finish the release") run on every run, for the two newest
-# .changes/v*.md on main, and do only what is missing. The GitHub Release
-# comes last, so a version with one is finished. A run that died after the
-# commit push (a rejected tag push, an API error) is finished by the next
-# run: the next push to main, a re-run, or a workflow_dispatch on main. No
-# hand work. That step never moves a tag (a tag at another commit is an
-# error), tags only a commit on main, and releases only a version whose
-# file is on main. With no fragments and nothing to finish, the run costs
-# one or two API calls.
+# .changes/v*.md on main, each on its own, and do only what is missing. The
+# GitHub Release comes last, so a version with one is finished. A run that
+# died after the commit push (a rejected tag push, an API error) is
+# finished by the next push to main, or by a workflow_dispatch on main with
+# no fragment-body (no note). No hand work. Re-run a failed run only when
+# it had no fragment-body: a re-run reuses its inputs, so it adds that
+# fragment again and cuts one more release. That step never moves a tag (a
+# tag at another commit is an error), tags only a commit on main, and
+# releases only a version whose file is on main. With nothing to release
+# or finish, it costs one API call per version (two).
 #
 # fragment-body adds one more fragment (of fragment-kind) before step 1, for
 # a release no PR wrote a fragment for: app-repo-template passes one when a
@@ -72,7 +74,7 @@ on:
         type: string
         default: "v0.1.0"
       build-workflow:
-        description: "Caller workflow file to dispatch on the new tag. Empty: none."
+        description: "Caller workflow file (build.yaml) or numeric workflow id to dispatch on the new tag; not a display name. Empty: none."
         type: string
         default: "build.yaml"
       changie-version:
@@ -357,11 +359,13 @@ jobs:
       # Release is made last, so it marks a finished version: a version
       # with one is skipped after one API call, and a version without one
       # gets whatever it still lacks. That is how a run that died after the
-      # commit push is finished by the next run, a re-run, or a plain
-      # workflow_dispatch on main. Every action is safe to repeat: the tag
-      # push never moves a tag, the build is dispatched only when the tag
-      # has no build-workflow run yet, and an existing release counts as
-      # made. The API calls use curl, so no gh CLI is needed.
+      # commit push is finished by the next push to main, or a
+      # workflow_dispatch on main with no fragment-body (see the top of this
+      # file for re-runs). Each version is finished on its own, and the step
+      # fails at the end if one could not be. Every action is safe to
+      # repeat: the tag push never moves a tag, the build is dispatched only
+      # when the tag has no build-workflow run yet, and an existing release
+      # counts as made. The API calls use curl, so no gh CLI is needed.
       - name: Finish the release
         env:
           NEW_VERSION: ${{ steps.version.outputs.version }}
@@ -373,13 +377,20 @@ jobs:
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
           body="$(mktemp)"
-          if [ -n "$BUILD_WORKFLOW" ] && ! [[ "$BUILD_WORKFLOW" =~ ^[A-Za-z0-9._-]+$ ]]; then
-            echo "::error::build-workflow '$BUILD_WORKFLOW' is not a workflow file name"
+          # It goes into an API path: a file name (build.yaml) or a numeric
+          # workflow id, never a display name or a path like "..".
+          if [ -n "$BUILD_WORKFLOW" ] && ! [[ "$BUILD_WORKFLOW" =~ ^[A-Za-z0-9._-]+\.ya?ml$ || "$BUILD_WORKFLOW" =~ ^[0-9]+$ ]]; then
+            echo "::error::build-workflow '$BUILD_WORKFLOW' is not a workflow file name (such as build.yaml) or a numeric workflow id"
             exit 1
           fi
 
+          # finish runs in an "if !", where bash ignores set -e inside it and
+          # inside everything it calls. So finish and its helpers check every
+          # command whose failure must stop that version (|| return 1, or a
+          # status that falls to an error branch).
+
           # api METHOD PATH TOKEN [curl args]: prints the HTTP status, and
-          # leaves the response in $body.
+          # leaves the response in $body. Fails when curl gets no response.
           api() {
             local method="$1" path="$2" token="$3"
             shift 3
@@ -390,7 +401,8 @@ jobs:
               "$@" "${GITHUB_API_URL}/${path}"
           }
 
-          # The commit the remote's tag $1 points at, or nothing.
+          # The commit the remote's tag $1 points at, or nothing. Fails when
+          # git ls-remote fails (pipefail).
           remote_tag() {
             git ls-remote --tags origin "refs/tags/$1" "refs/tags/$1^{}" |
               awk -v t="refs/tags/$1" '$2 == t { c = $1 } $2 == t "^{}" { p = $1 } END { print (p != "" ? p : c) }'
@@ -406,7 +418,8 @@ jobs:
               if git push origin "refs/tags/${v}"; then
                 return 0
               fi
-              remote="$(remote_tag "$v")"
+              # A remote that can't be read is no answer: push again.
+              remote="$(remote_tag "$v")" || remote=""
               if [ "$remote" = "$sha" ]; then
                 echo "The remote has ${v} at ${sha:0:12}."
                 return 0
@@ -426,12 +439,15 @@ jobs:
           # How many build-workflow runs the tag $1 has (any event).
           build_runs() {
             local status
-            status="$(api GET "repos/${repo}/actions/workflows/${BUILD_WORKFLOW}/runs?branch=$1&per_page=1" "$ACTIONS_TOKEN" --retry 3)"
+            status="$(api GET "repos/${repo}/actions/workflows/${BUILD_WORKFLOW}/runs?branch=$1&per_page=1" "$ACTIONS_TOKEN" --retry 3)" || status="no response"
             if [ "$status" != 200 ]; then
               echo "::error::listing ${BUILD_WORKFLOW} runs for $1: HTTP ${status} $(cat "$body")" >&2
               return 1
             fi
-            python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["total_count"])' "$body"
+            if ! python3 -c 'import json, sys; print(int(json.load(open(sys.argv[1]))["total_count"]))' "$body" 2> /dev/null; then
+              echo "::error::listing ${BUILD_WORKFLOW} runs for $1: the answer has no run count: $(head -c 300 "$body")" >&2
+              return 1
+            fi
           }
 
           # Finish version $1; $2 is make_latest for its GitHub Release.
@@ -439,21 +455,24 @@ jobs:
             local v="$1" latest="$2" file sha status tag runs n payload notes refused
             local pushed=false did=()
             file=".changes/${v}.md"
-            status="$(api GET "repos/${repo}/releases/tags/${v}" "$GH_TOKEN" --retry 3)"
+            status="$(api GET "repos/${repo}/releases/tags/${v}" "$GH_TOKEN" --retry 3)" || status="no response"
             case "$status" in
               200) echo "${v}: released."; return 0 ;;
               404) ;;
               *) echo "::error::${v}: reading its GitHub Release: HTTP ${status} $(cat "$body")"; return 1 ;;
             esac
             # The commit that added the version file, on main.
-            sha="$(git log -1 --format=%H --diff-filter=A origin/main -- "$file")"
+            sha="$(git log -1 --format=%H --diff-filter=A origin/main -- "$file")" || return 1
             if [ -z "$sha" ] || ! git merge-base --is-ancestor "$sha" origin/main; then
               echo "::error::${v}: no commit on main added ${file}"
               return 1
             fi
             echo "${v}: no GitHub Release yet; finishing it at ${sha:0:12} ($(git log -1 --format=%s "$sha"))"
 
-            tag="$(remote_tag "$v")"
+            if ! tag="$(remote_tag "$v")"; then
+              echo "::error::${v}: could not read the remote tag"
+              return 1
+            fi
             if [ "$tag" = "$sha" ]; then
               echo "${v}: the tag is there."
             elif [ -n "$tag" ]; then
@@ -461,14 +480,14 @@ jobs:
               return 1
             else
               # Local only: the checkout may hold a stale copy.
-              git tag -f -a "$v" -m "$v" "$sha"
-              push_tag "$v" "$sha"
+              git tag -f -a "$v" -m "$v" "$sha" || return 1
+              push_tag "$v" "$sha" || return 1
               pushed=true
               did+=("pushed tag ${v} at ${sha:0:12}")
             fi
 
             if [ -n "$BUILD_WORKFLOW" ]; then
-              runs="$(build_runs "$v")"
+              runs="$(build_runs "$v")" || return 1
               # A tag pushed with GITHUB_TOKEN starts no workflow. One pushed
               # with the app token starts build-workflow if it triggers on
               # tags, a few seconds later: wait for that run rather than
@@ -478,13 +497,13 @@ jobs:
                   if [ "$runs" -gt 0 ]; then break; fi
                   echo "${v}: waiting for a ${BUILD_WORKFLOW} run from the tag push (${n}/6)"
                   sleep 5
-                  runs="$(build_runs "$v")"
+                  runs="$(build_runs "$v")" || return 1
                 done
               fi
               if [ "$runs" -gt 0 ]; then
                 echo "${v}: ${BUILD_WORKFLOW} has run on the tag; not dispatching it again."
               else
-                status="$(api POST "repos/${repo}/actions/workflows/${BUILD_WORKFLOW}/dispatches" "$ACTIONS_TOKEN" --data-binary "{\"ref\":\"${v}\"}")"
+                status="$(api POST "repos/${repo}/actions/workflows/${BUILD_WORKFLOW}/dispatches" "$ACTIONS_TOKEN" --data-binary "{\"ref\":\"${v}\"}")" || status="no response"
                 if [ "$status" != 204 ] && [ "$status" != 200 ]; then
                   echo "::error::${v}: dispatching ${BUILD_WORKFLOW}: HTTP ${status} $(cat "$body")"
                   return 1
@@ -494,14 +513,15 @@ jobs:
             fi
 
             # Without the tag, the API would make one at main's tip.
-            if [ "$(remote_tag "$v")" != "$sha" ]; then
-              echo "::error::${v}: the remote tag is not at ${sha}; no GitHub Release made"
+            tag="$(remote_tag "$v")" || tag="unknown"
+            if [ "$tag" != "$sha" ]; then
+              echo "::error::${v}: the remote tag is not at ${sha} (${tag:-none}); no GitHub Release made"
               return 1
             fi
-            notes="$(mktemp)"
-            git show "${sha}:${file}" > "$notes"
-            payload="$(python3 -c 'import json, sys; print(json.dumps({"tag_name": sys.argv[1], "name": sys.argv[1], "body": open(sys.argv[3]).read(), "make_latest": sys.argv[2]}))' "$v" "$latest" "$notes")"
-            status="$(api POST "repos/${repo}/releases" "$GH_TOKEN" --data-binary "$payload")"
+            notes="$(mktemp)" || return 1
+            git show "${sha}:${file}" > "$notes" || return 1
+            payload="$(python3 -c 'import json, sys; print(json.dumps({"tag_name": sys.argv[1], "name": sys.argv[1], "body": open(sys.argv[3]).read(), "make_latest": sys.argv[2]}))' "$v" "$latest" "$notes")" || return 1
+            status="$(api POST "repos/${repo}/releases" "$GH_TOKEN" --data-binary "$payload")" || status="no response"
             if [ "$status" = 422 ]; then
               # Another run may have made it first.
               refused="$(cat "$body")"
@@ -539,8 +559,20 @@ jobs:
             echo "::error::this run released ${NEW_VERSION}, but the newest version on main is ${newest}"
             exit 1
           fi
-          # Oldest first, and only the newest becomes the latest release. A
-          # failure stops here; the next run starts over.
+          # Oldest first, and only the newest becomes the latest release
+          # (make_latest is explicit for each). Each version is finished on
+          # its own: a failure on one doesn't stop the other, and the step
+          # fails at the end. The next run tries the failed one again.
+          failed=()
           for v in "${versions[@]}"; do
-            if [ "$v" = "$newest" ]; then finish "$v" true; else finish "$v" false; fi
+            latest=false
+            if [ "$v" = "$newest" ]; then latest=true; fi
+            if ! finish "$v" "$latest"; then
+              failed+=("$v")
+              echo "### ${v} is not finished: see the error in the log" >> "$GITHUB_STEP_SUMMARY"
+            fi
           done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::not finished: ${failed[*]}; the next run of this workflow tries again"
+            exit 1
+          fi

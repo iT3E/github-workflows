@@ -225,6 +225,42 @@ expect "fails" eq "$status" 1
 expect "shows the refusal" has "$output" "HTTP 422 .*refused by the fake"
 done_case
 
+echo "== the older version fails, the newer one is still finished"
+setup older-fails v1.0.0 v1.1.0
+first="$(git -C "$origin" rev-list --max-parents=0 main)"
+tag v1.0.0 "$first"
+run "" build.yaml false
+expect "fails" eq "$status" 1
+expect "says why for v1.0.0" has "$output" "v1.0.0: the remote tag is at $first"
+expect "names the version not finished" has "$output" "not finished: v1.0.0;"
+expect "leaves the v1.0.0 tag where it was, with no release" eq "$(remote_tag v1.0.0):$(count "$api/releases/v1.0.0.json" tag_name)" "$first:0"
+expect "tags v1.1.0" eq "$(remote_tag v1.1.0)" "$(added v1.1.0)"
+expect "builds only v1.1.0" eq "$(cat "$api/dispatches")" "build.yaml v1.1.0"
+expect "publishes v1.1.0 as latest" eq "$(latest v1.1.0)" "true"
+expect "the summary names both" eq "$(grep -c '^### ' "$api/summary")" 2
+done_case
+
+echo "== a bad answer from the API stops that version (set -e is off in finish)"
+setup bad-runs v0.1.0
+tag v0.1.0
+touch "$api/bad-runs"
+run "" build.yaml false
+expect "fails" eq "$status" 1
+expect "dispatches no build" eq "$(count "$api/dispatches")" 0
+expect "publishes no release" eq "$(writes)" 0
+done_case
+
+echo "== build-workflow must be a file name or a workflow id"
+setup build-workflow-names v0.1.0
+for name in ".." "Build" "../../../user" "build"; do
+  run "" "$name" false
+  expect "'$name' fails before any API call or push" eq "$status:$(count "$api/log"):$(count "$api/tag-pushes")" "1:0:0"
+done
+expect "with a clear error" has "$output" "not a workflow file name"
+run "" 12345 false
+expect "a numeric workflow id works" eq "$status:$(cat "$api/dispatches")" "0:12345 v0.1.0"
+done_case
+
 echo "== a run that just released, previous version complete"
 setup new-release v1.0.0 v1.1.0
 tag v1.0.0; release v1.0.0; build_ran v1.0.0

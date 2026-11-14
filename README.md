@@ -320,16 +320,22 @@ Secret `RELEASE_APP_PRIVATE_KEY`, only with `app-client-id`. Output
 **A half-made release finishes itself.** Steps 3 to 5 run on every run,
 for the two newest `.changes/v*.md` on `main`, and do only what is
 missing. The GitHub Release comes last, so a version that has one is
-finished and costs one API call to check. If a run dies after the commit
-push (a rejected tag push, an API error), the next run finishes the
-version: the next push to `main`, a re-run of the failed run, or a plain
-dispatch of the caller's Release workflow on `main`
-(`gh workflow run release.yaml --ref main`). No hand work is needed: do
-not tag, release or dispatch the build by hand. The step summary lists
-what it finished. Its guards:
+finished: checking costs one API call per version, so two per run. If a
+run dies after the commit push (a rejected tag push, an API error), the
+next run finishes the version. To recover, dispatch the caller's Release
+workflow on `main` with no note (`gh workflow run release.yaml --ref
+main`), or wait for the next push to `main`. Re-run the failed run only
+when it had no `fragment-body` (no note): a re-run reuses its inputs, so
+it adds that fragment again and cuts one more release. app-repo-template
+passes `fragment-body` when Renovate moves its pin, so don't re-run those.
+No hand work is needed: do not tag, release or dispatch the build by
+hand. The step summary lists what it finished. Its guards:
 
-- It never moves a tag. A remote tag at another commit fails the run and
-  changes nothing; that one needs a person.
+- Each version is finished on its own: a failure on the older one does
+  not stop the newer one. The run then fails and names the version it
+  could not finish.
+- It never moves a tag. A remote tag at another commit fails that version
+  and changes nothing for it; that one needs a person.
 - It tags only the commit on `main` that added the version file, and
   releases only a version whose file is on `main`. A release is made only
   once its tag is on the remote.
@@ -344,6 +350,22 @@ what it finished. Its guards:
 It looks at two versions, not one, because in a repo that runs the release
 only on pushes that add fragments, the next run that comes is a release
 run. With no versions yet (a new repo), it does nothing.
+
+What changed for callers in v1.9.3:
+
+- The build is dispatched before the GitHub Release. A dispatch that
+  fails (for example, a `build-workflow` without `workflow_dispatch`)
+  stops the release of that version until it is fixed, and every run
+  fails until then.
+- A run with no fragments can now fail: an API error, or a tag at
+  another commit, for one of the two newest versions.
+- `build-workflow` must be a file name (`build.yaml`) or a numeric
+  workflow id. A display name (`Build`), which `gh workflow run` used to
+  accept, now fails every run.
+- The job needs `curl` and `python3`, and no longer the gh CLI.
+- The steps "Commit, tag, push", "GitHub Release" and "Build for the tag"
+  are gone: now "Git identity", "Commit and push" and "Finish the
+  release".
 
 Nothing new is released without fragments. The version is Changie's next for
 `bump` (`auto`: the highest fragment kind), or `first-version` while
@@ -381,7 +403,7 @@ app repo whose image is built from the rest.
 | --- | --- | --- | --- |
 | `bump` | string | `auto` | `auto`, `patch`, `minor` or `major` |
 | `first-version` | string | `v0.1.0` | the first release |
-| `build-workflow` | string | `build.yaml` | caller workflow file to dispatch on the tag; empty: none |
+| `build-workflow` | string | `build.yaml` | caller workflow file name, or numeric workflow id, to dispatch on the tag (not a display name); empty: none |
 | `changie-version` | string | `v1.26.0` (pinned) | Changie release |
 | `fragment-kind` | string | `Changed` | kind of the `fragment-body` fragment |
 | `fragment-body` | string | empty | add one fragment with this text before releasing; app-repo-template uses it to release when Renovate moves its pin of this repo |
@@ -601,8 +623,10 @@ One that only touches this repo's own CI, hooks or Taskfile releases
 nothing and ships with the next release. `Self: Release` can also be run
 by hand with a `note` (it becomes a `Fixed` fragment unless you pick
 another kind). If a release run fails after its commit reached `main`,
-run `Self: Release` again with no note: it finishes the tag and the
+start a new `Self: Release` run with no note: it finishes the tag and the
 GitHub Release (see [`release.yaml`](#releaseyaml-changie-release)).
+Re-run the failed run only if it had no note: a re-run reuses the note,
+adds it as a fragment again and cuts one more release.
 
 ## Privacy
 
