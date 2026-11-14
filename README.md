@@ -200,8 +200,8 @@ the commits the event adds (messages, author and committer identities),
 and on the PR title and body (a bot's PR body is skipped: it is
 third-party release notes). Commit range: a PR checks `base..head`, a
 push to `main` checks `before..HEAD`, a `v*` tag checks the whole history.
-Hits print as `hit: <where>`: never the matched text, the term or its
-place in the list. A secret that doesn't read as a list stops the check
+Hits print as `hit: <where>`, with every term in `<where>` replaced by
+`[term]`: never the matched text, the term or its place in the list. A secret that doesn't read as a list stops the check
 (exit 2), so it never passes without checking.
 
 | Input | Type | Default | Meaning |
@@ -641,8 +641,13 @@ household details, or anything else that says who is who. Examples use
   and is never committed or printed. CI reads it from this repo's
   `PRIVACY_TERMS` secret (`task privacy:sync` from a clone next to
   tnwks-ops). The secret holds either the list (one term per line) or one
-  opaque line that `bin/privacy-check --encode` makes from it, which the
-  sync writes; `bin/privacy-check` reads both. Fork PRs get no secrets, so `Self: Privacy` warns instead of
+  opaque line that `bin/privacy-check --encode` makes from it;
+  `bin/privacy-check` reads both. `task privacy:sync` here writes the plain
+  list; only tnwks-ops' sync writes the opaque form, once a repository can
+  read it.
+- CI logs don't hide denylisted words: `bin/privacy-check` keeps them out of
+  its own output, but a build or test that prints a file the owner allowed
+  (`.github/privacy-allow`, or a `privacy:allow` line) prints it as it is. Fork PRs get no secrets, so `Self: Privacy` warns instead of
   failing on them.
 - `bin/privacy-check` is a copy of app-repo-template's
   `template/bin/privacy-check`, kept in step with it and with tnwks-ops'

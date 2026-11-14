@@ -82,9 +82,9 @@ class Forms(Repo):
                 r = self.check(value, "--text", stdin=f"text with {t} in it")
                 self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
 
-    def test_encoded_list_with_surrounding_space(self):
+    def test_encoded_list_with_trailing_newlines(self):
         value = encode(LEGACY, self.dir)
-        r = self.check(f"\n  {value}  \r\n", "--text", stdin="quilmarte")
+        r = self.check(f"{value}\r\n\n", "--text", stdin="quilmarte")
         self.assertEqual(r.returncode, 1)
 
     def test_encode_accepts_an_encoded_list(self):
@@ -144,9 +144,26 @@ class Unreadable(Repo):
         value = encode(LEGACY, self.dir)
         self.assert_stops(value.split(":", 2)[2])
 
-    def test_encoded_plus_a_second_line(self):
+    def test_opaque_then_plain(self):
         value = encode(LEGACY, self.dir)
         self.assert_stops(value + "\nzorbexa")
+
+    def test_plain_then_opaque(self):
+        value = encode(LEGACY, self.dir)
+        self.assert_stops("zorbexa\n" + value)
+
+    def test_comment_then_opaque(self):
+        value = encode(LEGACY, self.dir)
+        self.assert_stops("# the list\n" + value)
+
+    def test_two_opaque_lines(self):
+        self.assert_stops(encode(LEGACY, self.dir) + "\n" + encode(LEGACY, self.dir))
+
+    def test_opaque_with_leading_whitespace(self):
+        self.assert_stops("  " + encode(LEGACY, self.dir))
+
+    def test_opaque_with_trailing_space(self):
+        self.assert_stops(encode(LEGACY, self.dir) + "  ")
 
 
 class OlderCopy(Repo):
@@ -172,48 +189,70 @@ class OlderCopy(Repo):
 
 
 class Output(Repo):
-    """No term, no term number and no count in anything it prints."""
+    """No term (in any case, also inside a longer word), no term number and
+    no count in anything it prints, for every kind of hit."""
 
     def assert_quiet(self, r):
-        out = r.stdout + r.stderr
+        out = (r.stdout + r.stderr).lower()
         for t in TERMS:
-            self.assertNotIn(t.lower(), out.lower())
+            self.assertNotIn(t.lower(), out)
         self.assertNotRegex(out, r"#\s*\d")
         self.assertNotRegex(out, r"(?i)\bterms?\b[^.\n]*\d|\d+[ \t]+(terms?|hits?)")
 
     def test_text_hit(self):
         value = encode(LEGACY, self.dir)
-        r = self.check(value, "--text", stdin="zorbexa and quilmarte and an.example@example.invalid")
+        r = self.check(value, "--text", stdin="ZORBEXA and quilmarte and an.example@example.invalid")
         self.assertEqual(r.returncode, 1)
         self.assert_quiet(r)
         self.assertEqual(r.stdout.strip().splitlines(), ["hit: text"] * 3)
         self.assertNotRegex(r.stdout + r.stderr, r"\d")
 
-    def test_file_commit_and_pr_text_hits(self):
-        (self.dir / "notes.txt").write_text("one\nQuilmarte here\n")
+    def test_message_hit(self):
+        msg = self.dir / "msg.txt"
+        msg.write_text("fix: about Tessaline\n")
+        r = self.check(encode(LEGACY, self.dir), "--message", str(msg))
+        self.assertEqual(r.returncode, 1)
+        self.assert_quiet(r)
+
+    def test_every_hit_kind_masks_terms_in_locations(self):
+        # Terms in paths: as a word, in another case, and inside a longer
+        # word (no hit for that term, but the path is printed for another).
+        d = self.dir / "Zorbexa-dir"
+        d.mkdir()
+        (d / "notes.txt").write_text("one\nQuilmarte here\n")
+        (self.dir / "xquilmartex.txt").write_text("tessaline\n")
+        (self.dir / "an.example@example.invalid.md").write_text("plain\n")
         self.git("add", ".")
         self.git("commit", "-q", "-m", "about tessaline")
         (self.dir / "more.txt").write_text("zorbexa\n")
         self.git("add", ".")
         self.git("commit", "-q", "-m", "plain")
         value = encode(LEGACY, self.dir)
-        r = self.check(value, "--commits", "HEAD~2..HEAD", env={"PRIVACY_EXTRA_TEXT": "title zorbexa"})
-        self.assertEqual(r.returncode, 1)
-        self.assert_quiet(r)
-        hits = sorted(r.stdout.strip().splitlines())
-        self.assertIn("hit: notes.txt:2", hits)
+        env = {"PRIVACY_EXTRA_TEXT": "title Zorbexa"}
+        for args in ([], ["--cached"], ["--commits", "HEAD~2..HEAD"]):
+            with self.subTest(args=args):
+                r = self.check(value, *args, env=env)
+                self.assertEqual(r.returncode, 1)
+                self.assert_quiet(r)
+        r = self.check(value, "--commits", "HEAD~2..HEAD", env=env)
+        hits = r.stdout.strip().splitlines()
+        self.assertIn("hit: [term]-dir/notes.txt:2", hits)
+        self.assertIn("hit: path [term]-dir/notes.txt", hits)
+        self.assertIn("hit: x[term]x.txt:1", hits)
+        self.assertIn("hit: path [term].md", hits)
         self.assertIn("hit: more.txt:1", hits)
         self.assertIn("hit: PR title or body", hits)
         self.assertEqual(sum(1 for h in hits if h.startswith("hit: commit ")), 1)
         self.assertNotIn("null byte", r.stderr)
 
-    def test_path_hit_names_the_path(self):
-        # A path is reported as it is: it is already in the PR for anyone to see.
-        (self.dir / "zorbexa-notes.txt").write_text("one\n")
+    def test_identity_hit(self):
+        value = encode(LEGACY, self.dir)
+        (self.dir / "x.txt").write_text("x\n")
         self.git("add", ".")
-        r = self.check(encode(LEGACY, self.dir))
+        r = self.check(value, "--cached", env={"GIT_AUTHOR_NAME": "Quilmarte Person"})
         self.assertEqual(r.returncode, 1)
-        self.assertIn("hit: path zorbexa-notes.txt", r.stdout)
+        self.assert_quiet(r)
+        self.assertIn("hit: GIT_AUTHOR_IDENT", r.stdout)
 
     def test_bad_range_stops(self):
         r = self.check(encode(LEGACY, self.dir), "--commits", "no-such-ref..HEAD")

@@ -34,8 +34,7 @@ tasks:
     vars:
       OPS: '{{.TNWKS_OPS_DIR | default "../tnwks-ops"}}'
     cmds:
-      # The secret gets the opaque one-line form (bin/privacy-check --encode).
-      - set -o pipefail; v="$( (cd "{{.OPS}}" && sops -d --extract '["terms"]' .github/privacy-terms.sops.yaml) | bin/privacy-check --encode)" && printf '%s\n' "$v" | gh secret set PRIVACY_TERMS
+      - (cd "{{.OPS}}" && sops -d --extract '["terms"]' .github/privacy-terms.sops.yaml) | gh secret set PRIVACY_TERMS
 
   changelog:new:
     desc: Add a Changie fragment for this PR (needs changie, brew install changie)
