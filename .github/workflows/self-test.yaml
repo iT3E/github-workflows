@@ -16,6 +16,8 @@ name: "Self: Test"
 #   terraform             a plan of tests/terraform, and a bad tf-vars line
 #   sticky-comment        create, update, only-update, then delete (PRs only)
 #   workflow-conformance  this repo passes, and a broken copy fails
+# and bin/privacy-check (tests/privacy: both forms of the list, what it
+# prints, and that the released copy stops on the opaque form),
 # and the script of the "Finish the release" step of release.yaml, without
 # GitHub (tests/release/finish-test.sh: a throwaway bare repo, the API
 # stubbed):
@@ -140,6 +142,21 @@ jobs:
           fi
           echo "No Postgres service, as expected"
         fi
+
+  privacy-check:
+    name: privacy-check
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test bin/privacy-check
+        run: python3 -m unittest discover -s tests/privacy -v
 
   # The composite actions in actions/, from this checkout. App repos call
   # them as iT3E/github-workflows/actions/<name>@<sha> # vX.Y.Z.
