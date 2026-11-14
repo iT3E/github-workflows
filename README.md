@@ -647,8 +647,13 @@ household details, or anything else that says who is who. Examples use
   read it.
 - CI logs don't hide denylisted words: `bin/privacy-check` keeps them out of
   its own output, but a build or test that prints a file the owner allowed
-  (`.github/privacy-allow`, or a `privacy:allow` line) prints it as it is. Fork PRs get no secrets, so `Self: Privacy` warns instead of
-  failing on them.
+  (`.github/privacy-allow`, or a `privacy:allow` line) prints it as it is.
+  Fork PRs get no secrets, so `Self: Privacy` warns instead of failing on
+  them.
+- Matching ignores case outside ASCII too, whatever the locale. A known
+  limit: a letter written as a base letter plus a combining mark doesn't
+  match the same letter written as one character (or the other way round),
+  so a term matches only in the form the list spells it.
 - `bin/privacy-check` is a copy of app-repo-template's
   `template/bin/privacy-check`, kept in step with it and with tnwks-ops'
   own. Locally it reads `$PRIVACY_TERMS` or decrypts the list from

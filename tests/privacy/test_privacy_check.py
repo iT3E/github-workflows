@@ -14,13 +14,15 @@ import re
 import stat
 import subprocess
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent.parent / "bin" / "privacy-check"
 OLD_SCRIPT = HERE / "privacy-check-1.9.3"
-TERMS = ["zorbexa", "quilmarte", "an.example@example.invalid", "Tessaline"]
+# Two terms have a letter outside ASCII, one lower case and one upper case.
+TERMS = ["zorbexa", "quilmarte", "an.example@example.invalid", "Tessaline", "brökvane", "ÅSTRELIN"]
 LEGACY = "# a comment\n" + "\n".join(TERMS) + "\n\n"
 
 
@@ -193,9 +195,13 @@ class Output(Repo):
     no count in anything it prints, for every kind of hit."""
 
     def assert_quiet(self, r):
-        out = (r.stdout + r.stderr).lower()
-        for t in TERMS:
-            self.assertNotIn(t.lower(), out)
+        raw = r.stdout + r.stderr
+        for form in ("NFC", "NFD"):
+            out = unicodedata.normalize(form, raw).casefold()
+            for t in TERMS:
+                self.assertNotIn(unicodedata.normalize(form, t).casefold(), out)
+        # Nothing printed as octal escapes (git's default for such paths).
+        self.assertNotRegex(raw, r"\\[0-3][0-7]{2}")
         self.assertNotRegex(out, r"#\s*\d")
         self.assertNotRegex(out, r"(?i)\bterms?\b[^.\n]*\d|\d+[ \t]+(terms?|hits?)")
 
@@ -273,6 +279,65 @@ class Output(Repo):
             value = encode("\n".join(short), self.dir)
             for t in short:
                 self.assertNotIn(t.lower(), value.lower())
+
+
+class Unicode(Repo):
+    """Terms with a letter outside ASCII, in either case, in every place the
+    check looks, whatever the caller's locale."""
+
+    assert_quiet = Output.assert_quiet
+    LOCALES = ({}, {"LC_ALL": "C"}, {"LC_ALL": "POSIX", "LANG": "C"}, {"LC_ALL": "", "LANG": "C.UTF-8"})
+
+    def test_paths_lines_and_commits(self):
+        # The letter in the other case than in the list.
+        d = self.dir / "BRÖKVANE-notes"
+        d.mkdir()
+        (d / "a.txt").write_text("plain\nåstrelin here\n")
+        (self.dir / "Åstrelin.md").write_text("plain\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "about BRÖKVANE")
+        self.git("commit", "-q", "--allow-empty", "-m", "about åstrelin")
+        value = encode(LEGACY, self.dir)
+        for env in self.LOCALES:
+            for args in ([], ["--cached"], ["--commits", "HEAD~2..HEAD"]):
+                with self.subTest(env=env, args=args):
+                    r = self.check(value, *args, env=env)
+                    self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                    self.assert_quiet(r)
+                    hits = r.stdout.strip().splitlines()
+                    self.assertIn("hit: [term]-notes/a.txt:2", hits)
+                    self.assertIn("hit: path [term]-notes/a.txt", hits)
+                    self.assertIn("hit: path [term].md", hits)
+                    if args[:1] == ["--commits"]:
+                        self.assertEqual(sum(1 for h in hits if h.startswith("hit: commit ")), 2)
+
+    def test_message_and_text(self):
+        msg = self.dir / "msg.txt"
+        value = encode(LEGACY, self.dir)
+        for env in self.LOCALES:
+            for word in ("brökvane", "BRÖKVANE", "Åstrelin", "åstrelin"):
+                with self.subTest(env=env, word=word):
+                    msg.write_text(f"fix: about {word}\n")
+                    r = self.check(value, "--message", str(msg), env=env)
+                    self.assertEqual(r.stdout.strip(), "hit: commit message")
+                    self.assertEqual(r.returncode, 1)
+                    r = self.check(value, "--text", stdin=f"about {word}", env=env)
+                    self.assertEqual(r.stdout.strip(), "hit: text")
+                    self.assertEqual(r.returncode, 1)
+                    self.assert_quiet(r)
+
+    def test_decomposed_letters_are_a_known_limit(self):
+        # The list has one character for the letter; the text has the base
+        # letter and a combining mark. They don't match (README: a known
+        # limit). Written the same way, they do.
+        value = encode(LEGACY, self.dir)
+        nfd = unicodedata.normalize("NFD", "brökvane")
+        self.assertNotEqual(nfd, "brökvane")
+        self.assertEqual(self.check(value, "--text", stdin=nfd).returncode, 0)
+        same = encode(unicodedata.normalize("NFD", LEGACY), self.dir)
+        r = self.check(same, "--text", stdin=nfd)
+        self.assertEqual(r.returncode, 1)
+        self.assert_quiet(r)
 
 
 class FailedSearch(Repo):
