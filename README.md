@@ -200,7 +200,9 @@ the commits the event adds (messages, author and committer identities),
 and on the PR title and body (a bot's PR body is skipped: it is
 third-party release notes). Commit range: a PR checks `base..head`, a
 push to `main` checks `before..HEAD`, a `v*` tag checks the whole history.
-Hits print as `term #N: <where>`, never the matched text.
+Hits print as `hit: <where>`: never the matched text, the term or its
+place in the list. A secret that doesn't read as a list stops the check
+(exit 2), so it never passes without checking.
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -638,7 +640,9 @@ household details, or anything else that says who is who. Examples use
 - The denylist lives only in tnwks-ops (`.github/privacy-terms.sops.yaml`)
   and is never committed or printed. CI reads it from this repo's
   `PRIVACY_TERMS` secret (`task privacy:sync` from a clone next to
-  tnwks-ops). Fork PRs get no secrets, so `Self: Privacy` warns instead of
+  tnwks-ops). The secret holds either the list (one term per line) or one
+  opaque line that `bin/privacy-check --encode` makes from it, which the
+  sync writes; `bin/privacy-check` reads both. Fork PRs get no secrets, so `Self: Privacy` warns instead of
   failing on them.
 - `bin/privacy-check` is a copy of app-repo-template's
   `template/bin/privacy-check`, kept in step with it and with tnwks-ops'
