@@ -1,3 +1,0 @@
-kind: Security
-body: 'privacy-text.yaml checks only text whose author is the repository owner, a member or a collaborator; anyone else''s text is left to a person. A check that can''t run fails the run and deletes nothing. self-test.yaml runs the bin/privacy-check tests.'
-time: 2026-11-14T15:10:00.000000+00:00

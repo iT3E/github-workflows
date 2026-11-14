@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.9.5 - 2026-11-14
+
+### Security
+
+* privacy-text.yaml checks only text whose author is the repository owner, a member or a collaborator; anyone else's text is left to a person. A check that can't run fails the run and deletes nothing. self-test.yaml runs the bin/privacy-check tests.
+
 ## v1.9.4 - 2026-11-14
 
 ### Security
