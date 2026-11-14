@@ -309,13 +309,43 @@ Secret `RELEASE_APP_PRIVATE_KEY`, only with `app-client-id`. Output
 
 1. Batches `.changes/unreleased/` into `.changes/<version>.md` and
    `CHANGELOG.md`.
-2. Commits `chore(release): <version>`, pushes it to `main` (rebasing onto
-   a moved `main`, up to 5 tries), tags it (annotated) and pushes the tag.
-3. Publishes a GitHub Release with the version's notes.
-4. Dispatches `build-workflow` on the tag, since a tag pushed with
-   `GITHUB_TOKEN` starts no workflow.
+2. Commits `chore(release): <version>` and pushes it to `main` (rebasing
+   onto a moved `main`, up to 5 tries).
+3. Tags the commit that added `.changes/<version>.md` (annotated) and
+   pushes the tag (up to 5 tries, with a backoff).
+4. Dispatches `build-workflow` on the tag, unless the tag already has a
+   run of it, since a tag pushed with `GITHUB_TOKEN` starts no workflow.
+5. Publishes a GitHub Release with the version's notes.
 
-Nothing happens without fragments. The version is Changie's next for
+**A half-made release finishes itself.** Steps 3 to 5 run on every run,
+for the two newest `.changes/v*.md` on `main`, and do only what is
+missing. The GitHub Release comes last, so a version that has one is
+finished and costs one API call to check. If a run dies after the commit
+push (a rejected tag push, an API error), the next run finishes the
+version: the next push to `main`, a re-run of the failed run, or a plain
+dispatch of the caller's Release workflow on `main`
+(`gh workflow run release.yaml --ref main`). No hand work is needed: do
+not tag, release or dispatch the build by hand. The step summary lists
+what it finished. Its guards:
+
+- It never moves a tag. A remote tag at another commit fails the run and
+  changes nothing; that one needs a person.
+- It tags only the commit on `main` that added the version file, and
+  releases only a version whose file is on `main`. A release is made only
+  once its tag is on the remote.
+- A tag push that another run beat, and a release that another run made,
+  count as done. The build is dispatched only when the tag has no run of
+  `build-workflow` (from any event), so a tag is not built twice. A tag
+  the app token pushes does start workflows: the run waits up to 30
+  seconds for that run before it dispatches.
+- The newest version is the latest release; an older one it finishes is
+  not marked latest.
+
+It looks at two versions, not one, because in a repo that runs the release
+only on pushes that add fragments, the next run that comes is a release
+run. With no versions yet (a new repo), it does nothing.
+
+Nothing new is released without fragments. The version is Changie's next for
 `bump` (`auto`: the highest fragment kind), or `first-version` while
 `.changes/` has no `v*.md`. Callers trigger it on pushes to `main` (every
 push when `auto-fragment` is set, else those touching
@@ -325,7 +355,7 @@ commit only while no ruleset blocks it. When one does, set `app-client-id`
 and pass `RELEASE_APP_PRIVATE_KEY`: a GitHub App the ruleset lets bypass
 it pushes the commit and tag and publishes the release, with a token
 scoped to `contents: write` on the calling repo. The commit is authored
-by `<app-slug>[bot]`.
+by `<app-slug>[bot]`. The API calls use curl, not the gh CLI.
 
 **Automatic releases for bot PRs.** Renovate and Dependabot PRs carry no
 fragment (`changelog.yaml` waives it), so on their own they would never
@@ -530,10 +560,14 @@ Every PR runs, with the workflows from the PR itself (local paths):
   [`tests/node`](tests/node) (every check with `node-version`, then the
   defaults with `node-version-file`), and
   `image.yaml` on [`tests/image`](tests/image) with and without its
-  Postgres service. The test image is never pushed.
-- `Self: Lint`: yamllint, shellcheck on `bin/*`, a check that every
-  reusable workflow is `workflow_call` only, starts from `permissions:
-  {}` and pins actions as `@<sha> # vX.Y.Z`, and
+  Postgres service. The test image is never pushed. And
+  [`tests/release/finish-test.sh`](tests/release/finish-test.sh): the
+  script of `release.yaml`'s "Finish the release" step, taken from the
+  workflow with yq, run against a throwaway bare repo with the API
+  stubbed, for each half-made release case. It runs locally too.
+- `Self: Lint`: yamllint, shellcheck on `bin/*` and the release test, a
+  check that every reusable workflow is `workflow_call` only, starts from
+  `permissions: {}` and pins actions as `@<sha> # vX.Y.Z`, and
   `renovate-config-validator --strict` on the presets and this repo's
   config.
 - `Self: Actionlint`, `Self: Secret Scan` (betterleaks), `Self: Privacy`,
@@ -562,7 +596,9 @@ own, "Dependency updates: <subject>", and flows on to app-repo-template.
 One that only touches this repo's own CI, hooks or Taskfile releases
 nothing and ships with the next release. `Self: Release` can also be run
 by hand with a `note` (it becomes a `Fixed` fragment unless you pick
-another kind).
+another kind). If a release run fails after its commit reached `main`,
+run `Self: Release` again with no note: it finishes the tag and the
+GitHub Release (see [`release.yaml`](#releaseyaml-changie-release)).
 
 ## Privacy
 

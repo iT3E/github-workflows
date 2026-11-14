@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""A stand-in for curl in finish-test.sh: the few GitHub API calls the
+"Finish the release" step makes, served from the state directory $FAKE_API.
+
+  releases/<tag>.json   a GitHub Release (the create payload)
+  runs/<tag>            one line per build-workflow run on the tag
+  dispatches            one line per workflow dispatch
+  race-release          the next create finds the release made: 422
+  refuse-release        every create is refused: 422, and no release
+  log                   every request, "METHOD path?query"
+
+It prints the HTTP status (the step calls curl -w '%{http_code}') and
+writes the body to the -o file.
+"""
+
+import json
+import os
+import sys
+import urllib.parse
+
+out, method, data, url = None, "GET", None, None
+args = sys.argv[1:]
+i = 0
+while i < len(args):
+    a = args[i]
+    if a == "-o":
+        out = args[i + 1]
+    elif a == "-X":
+        method = args[i + 1]
+    elif a == "--data-binary":
+        data = args[i + 1]
+    elif a in ("-w", "-H", "--retry"):
+        pass
+    elif a.startswith("-"):
+        i += 1
+        continue
+    else:
+        url = a
+        i += 1
+        continue
+    i += 2
+
+state = os.environ["FAKE_API"]
+parsed = urllib.parse.urlparse(url)
+query = urllib.parse.parse_qs(parsed.query)
+with open(os.path.join(state, "log"), "a") as f:
+    f.write(f"{method} {parsed.path}{'?' + parsed.query if parsed.query else ''}\n")
+releases = os.path.join(state, "releases")
+runs = os.path.join(state, "runs")
+os.makedirs(releases, exist_ok=True)
+os.makedirs(runs, exist_ok=True)
+
+
+def respond(code, obj=None):
+    if out:
+        with open(out, "w") as f:
+            f.write("" if obj is None else json.dumps(obj))
+    sys.stdout.write(str(code))
+    sys.exit(0)
+
+
+# /repos/<owner>/<repo>/...
+rest = parsed.path.strip("/").split("/")[3:]
+if method == "GET" and rest[:2] == ["releases", "tags"]:
+    p = os.path.join(releases, rest[2] + ".json")
+    if os.path.exists(p):
+        with open(p) as f:
+            respond(200, json.load(f))
+    respond(404, {"message": "Not Found"})
+if method == "POST" and rest == ["releases"]:
+    d = json.loads(data)
+    p = os.path.join(releases, d["tag_name"] + ".json")
+    if os.path.exists(os.path.join(state, "refuse-release")):
+        respond(422, {"message": "Validation Failed: refused by the fake"})
+    race = os.path.join(state, "race-release")
+    if os.path.exists(race):
+        os.remove(race)
+        with open(p, "w") as f:
+            json.dump(dict(d, made_by="another run"), f)
+    if os.path.exists(p):
+        respond(422, {"message": "Validation Failed", "errors": [{"code": "already_exists"}]})
+    with open(p, "w") as f:
+        json.dump(d, f)
+    respond(201, d)
+if method == "GET" and rest[:2] == ["actions", "workflows"] and rest[3:] == ["runs"]:
+    p = os.path.join(runs, query["branch"][0])
+    n = 0
+    if os.path.exists(p):
+        with open(p) as f:
+            n = len(f.read().splitlines())
+    respond(200, {"total_count": n, "workflow_runs": []})
+if method == "POST" and rest[:2] == ["actions", "workflows"] and rest[3:] == ["dispatches"]:
+    d = json.loads(data)
+    with open(os.path.join(runs, d["ref"]), "a") as f:
+        f.write("workflow_dispatch\n")
+    with open(os.path.join(state, "dispatches"), "a") as f:
+        f.write(f"{rest[2]} {d['ref']}\n")
+    respond(204)
+respond(500, {"message": f"fake-curl: no route for {method} {parsed.path}"})

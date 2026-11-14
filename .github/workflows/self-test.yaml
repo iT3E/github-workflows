@@ -16,6 +16,11 @@ name: "Self: Test"
 #   terraform             a plan of tests/terraform, and a bad tf-vars line
 #   sticky-comment        create, update, only-update, then delete (PRs only)
 #   workflow-conformance  this repo passes, and a broken copy fails
+# and the script of the "Finish the release" step of release.yaml, without
+# GitHub (tests/release/finish-test.sh: a throwaway bare repo, the API
+# stubbed):
+#   release-finish        nothing to do, the half-made release cases, the
+#                         guards, the retries and the races
 on:
   pull_request:
   push:
@@ -308,3 +313,18 @@ jobs:
           if python3 actions/workflow-conformance/conformance.py "$bad"; then
             echo "::error::a job without timeout-minutes passed"; exit 1
           fi
+
+  release-finish:
+    name: release (finish step)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Every case
+        run: tests/release/finish-test.sh
