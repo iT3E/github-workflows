@@ -4,7 +4,8 @@
 # runs in a clone of a throwaway bare repo, with curl and sleep stubbed
 # (fake-curl serves the API from a directory). The bare repo's hooks can
 # reject tag pushes, race another run to the tag, or start a build run as
-# a tag push with an app token would.
+# a tag push with an app token would. At the end, the "Add auto-fragment"
+# step counts bot commits from the last release commit, not the last tag.
 #
 #   tests/release/finish-test.sh [path/to/release.yaml]
 #
@@ -316,6 +317,48 @@ setup app-push-no-trigger v0.8.0
 run "" build.yaml true
 expect "succeeds" eq "$status" 0
 expect "waits six times, then dispatches once" eq "$(count "$api/log" 'runs?branch=v0.8.0'):$(cat "$api/dispatches")" "7:build.yaml v0.8.0"
+done_case
+
+# The "Add auto-fragment" step, in a repo where it runs before the finish
+# step: the newest release commit has no tag yet.
+auto="$work/auto.sh"
+yq '.jobs.release.steps[] | select(.name == "Add auto-fragment") | .run' "$workflow" > "$auto"
+autorun() {
+  set +e
+  output="$(cd "$1" && env KIND=Fixed BODY="Dependency updates" SHIP_PATHS="." bash "$auto" 2>&1)"
+  status=$?
+  set -e
+}
+botcommit() {
+  echo "$2" >> "$1/deps.txt"
+  git -C "$1" add deps.txt
+  GIT_AUTHOR_NAME="renovate[bot]" git -C "$1" commit -q -m "$2"
+}
+
+echo "== auto-fragment after a release whose tag is missing"
+repo="$work/auto-fragment"
+git init -q -b main "$repo"
+printf 'kinds:\n  - label: Fixed\n    auto: patch\n' > "$repo/.changie.yaml"
+mkdir -p "$repo/.changes"
+echo "## v0.1.0" > "$repo/.changes/v0.1.0.md"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m "chore(release): v0.1.0"
+git -C "$repo" tag -a v0.1.0 -m v0.1.0
+botcommit "$repo" "chore(deps): update example-lib to v2"
+echo "## v0.1.1" > "$repo/.changes/v0.1.1.md"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m "chore(release): v0.1.1"
+echo "docs" > "$repo/notes.md"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m "docs: a person's change"
+autorun "$repo"
+expect "succeeds" eq "$status" 0
+expect "adds no fragment for a bot commit v0.1.1 shipped" eq "$(find "$repo/.changes" -name '*.yaml' | wc -l)" 0
+expect "counts from the v0.1.1 release commit" has "$output" "chore(release): v0.1.1"
+botcommit "$repo" "chore(deps): update example-lib to v3"
+autorun "$repo"
+expect "a bot commit after it still adds a fragment" eq "$(find "$repo/.changes/unreleased" -name '*.yaml' 2> /dev/null | wc -l)" 1
+expect "naming only the new commit" has "$(cat "$repo"/.changes/unreleased/*.yaml)" "to v3$"
 done_case
 
 echo

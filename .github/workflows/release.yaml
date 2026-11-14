@@ -28,7 +28,8 @@ name: "Release"
 # template release.
 #
 # auto-fragment releases what dependency bots merged. When no fragment is
-# pending, and a commit since the last v* tag was authored by renovate[bot]
+# pending, and a commit since the last release commit (the one that added
+# the newest .changes/v*.md) was authored by renovate[bot]
 # or dependabot[bot] and changed a file in ship-paths, it adds one
 # auto-fragment-kind fragment: "<auto-fragment>: <their subjects>". Bot PRs
 # carry no fragment (changelog.yaml waives it), so without this their
@@ -37,8 +38,10 @@ name: "Release"
 # ships (the image, or the files consumers pin); the default is every path
 # except the repo tooling app-repo-template manages and the docs, so a
 # template update or a CI-only bump releases nothing. The check covers every
-# commit since the last tag, not just the pushed one, so a release run that
-# concurrency dropped (only one waits) is caught up by the next.
+# commit since the last release commit, not just the pushed one, so a
+# release run that concurrency dropped (only one waits) is caught up by the
+# next. It counts from the release commit, not the tag, so a release whose
+# tag is still missing doesn't ship its bot commits a second time.
 #
 # The version is changie's next for bump (auto: the highest fragment kind),
 # or first-version while .changes/ has no v*.md yet.
@@ -86,7 +89,7 @@ on:
         type: string
         default: ""
       auto-fragment:
-        description: "Text of the fragment added when bot commits since the last tag changed ship-paths and no fragment is pending. Empty: off."
+        description: "Text of the fragment added when bot commits since the last release changed ship-paths and no fragment is pending. Empty: off."
         type: string
         default: ""
       auto-fragment-kind:
@@ -224,7 +227,9 @@ jobs:
             echo "Fragments pending; they cover this release."
             exit 0
           fi
-          last="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)"
+          # The last release commit: the one that added the newest version
+          # file. Not the last tag, which a half-made release lacks.
+          last="$(git log -1 --format=%H --diff-filter=A HEAD -- '.changes/v*.md')"
           if [ -z "$last" ]; then
             echo "No release yet; the first one needs a fragment."
             exit 0
@@ -252,7 +257,7 @@ jobs:
             fi
           done < <(git log --no-merges --reverse --format='%H%x09%an%x09%s' "${last}..HEAD")
           if [ "${#subjects[@]}" -eq 0 ]; then
-            echo "No bot commit since ${last} changed ship-paths; nothing to release."
+            echo "No bot commit since ${last:0:12} ($(git log -1 --format=%s "$last")) changed ship-paths; nothing to release."
             exit 0
           fi
           note="${BODY}: $(printf '%s; ' "${subjects[@]}")"

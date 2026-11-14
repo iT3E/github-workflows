@@ -360,12 +360,15 @@ by `<app-slug>[bot]`. The API calls use curl, not the gh CLI.
 **Automatic releases for bot PRs.** Renovate and Dependabot PRs carry no
 fragment (`changelog.yaml` waives it), so on their own they would never
 ship. With `auto-fragment` set, when no fragment is pending and a commit
-since the last `v*` tag was authored by `renovate[bot]` or
-`dependabot[bot]` and changed a path in `ship-paths`, the workflow adds
-one `auto-fragment-kind` fragment, `<auto-fragment>: <their commit
+since the last release commit (the one that added the newest
+`.changes/v*.md`) was authored by `renovate[bot]` or `dependabot[bot]`
+and changed a path in `ship-paths`, the workflow adds one
+`auto-fragment-kind` fragment, `<auto-fragment>: <their commit
 subjects>`, and releases (a patch with the default `Fixed`). It looks at
-every commit since the tag, not only the pushed one, so a run that
-`concurrency` dropped is caught up by the next. A person's commit never
+every commit since that release commit, not only the pushed one, so a run
+that `concurrency` dropped is caught up by the next. It counts from the
+commit, not the tag, so a release whose tag is still missing doesn't ship
+its bot commits a second time. A person's commit never
 triggers it (a human PR brings its own fragment), and neither does a bot
 commit outside `ship-paths`, such as a template update or a CI-only bump.
 The default `ship-paths` is every path except the docs (`*.md`),
@@ -564,7 +567,8 @@ Every PR runs, with the workflows from the PR itself (local paths):
   [`tests/release/finish-test.sh`](tests/release/finish-test.sh): the
   script of `release.yaml`'s "Finish the release" step, taken from the
   workflow with yq, run against a throwaway bare repo with the API
-  stubbed, for each half-made release case. It runs locally too.
+  stubbed, for each half-made release case, plus the `auto-fragment`
+  baseline. It runs locally too.
 - `Self: Lint`: yamllint, shellcheck on `bin/*` and the release test, a
   check that every reusable workflow is `workflow_call` only, starts from
   `permissions: {}` and pins actions as `@<sha> # vX.Y.Z`, and

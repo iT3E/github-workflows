@@ -20,7 +20,8 @@ name: "Self: Test"
 # GitHub (tests/release/finish-test.sh: a throwaway bare repo, the API
 # stubbed):
 #   release-finish        nothing to do, the half-made release cases, the
-#                         guards, the retries and the races
+#                         guards, the retries and the races; and that
+#                         auto-fragment counts from the last release commit
 on:
   pull_request:
   push:
