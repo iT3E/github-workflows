@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.9.6 - 2026-11-17
+
+### Fixed
+
+* Dependency updates: feat(github-action): update actions/setup-go action to v7.1.0 (#36)
+
 ## v1.9.5 - 2026-11-14
 
 ### Security
