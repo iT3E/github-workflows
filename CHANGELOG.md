@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.9.7 - 2026-11-19
+
+### Fixed
+
+* Dependency updates: feat(github-action): update actions/create-github-app-token action to v3.4.0 (#37)
+
 ## v1.9.6 - 2026-11-17
 
 ### Fixed
