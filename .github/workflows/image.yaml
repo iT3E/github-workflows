@@ -75,7 +75,7 @@ on:
         description: "Postgres image tag for postgres: true."
         type: string
         # renovate: datasource=docker depName=postgres
-        default: "18"
+        default: "19"
       runs-on:
         description: "Runner label for every job."
         type: string
