@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.9.8 - 2026-11-20
+
+### Fixed
+
+* Dependency updates: chore(deps): update ruff to 0.17.6 (#38)
+
 ## v1.9.7 - 2026-11-19
 
 ### Fixed
