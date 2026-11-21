@@ -197,9 +197,23 @@ Job `privacy`. Caller grants `contents: read`. Secret `PRIVACY_TERMS`.
 
 Runs the caller's `bin/privacy-check` on every tracked file and path, on
 the commits the event adds (messages, author and committer identities),
-and on the PR title and body (a bot's PR body is skipped: it is
-third-party release notes). Commit range: a PR checks `base..head`, a
-push to `main` checks `before..HEAD`, a `v*` tag checks the whole history.
+and on the PR title and body (Renovate's PR body is skipped: it is
+third-party release notes; the body of every other author counts, a
+GitHub App's too). Commit range: a PR checks `base..head`, a push checks
+`before..HEAD` (a new branch: what it adds to the default branch), a `v*`
+tag checks the whole history.
+
+When the PR author or the actor of the event is not the repository owner
+or Renovate, the branch could change what checks it. Then the job runs
+`bin/privacy-check` and `.github/privacy-allow` of the default branch on
+the files and commits of the branch, and a line that the branch adds with
+the `privacy:allow` marker, in any of its commits or in its tree, fails
+the job: an exception is the owner's. Such a PR must have the default
+branch as its base, or the job fails: a green check against another base
+could stay on the head after a change of the base. With no default
+branch to read from, the job fails too. An attributes file of the branch
+(`* -diff`) can not hide a diff from the marker search: the job gives
+each path the default of git in the info file of the clone.
 Hits print as `hit: <where>`, with every term in `<where>` replaced by
 `[term]`: never the matched text, the term or its place in the list. A secret that doesn't read as a list stops the check
 (exit 2), so it never passes without checking.
@@ -210,7 +224,9 @@ Hits print as `hit: <where>`, with every term in `<where>` replaced by
 
 Callers trigger it on `pull_request` (types `opened`, `synchronize`,
 `reopened`, `edited`) and pushes to `main` (plus `v*` tags for a repo that
-ships tags only).
+ships tags only). A repository where a GitHub App pushes branches also
+triggers it on pushes to the branches of the App, so a branch with no PR
+is checked too.
 
 ### `privacy-text.yaml`: the denylist on comments, reviews and issues
 
@@ -232,9 +248,18 @@ never stands in for the `privacy` check on a PR head.
 
 Job `betterleaks`. Caller grants `contents: read`. No secrets.
 
-betterleaks over the commits a PR adds (or a push to `main` adds), with
-the caller's config, redacted. The server-side twin of the pre-commit
+betterleaks over the commits a PR adds (or a push adds; a new branch:
+each commit it adds to the default branch), with the caller's config,
+redacted. The server-side twin of the pre-commit
 hook. It runs the release binary, checked against the release's checksums.
+When the PR author or the actor of the event is not the repository owner
+or Renovate, the scan reads the config and the ignore files
+(`.betterleaksignore`, `.gitleaksignore`) of the default branch, and a
+line that the branch adds with `betterleaks:allow` or `gitleaks:allow`,
+in any of its commits or in its tree, fails the job. No config file of
+the branch stays in the folder. As for the privacy check, the base of
+such a PR must be the default branch, and an attributes file of the
+branch can not hide a diff from the marker search or from the scan.
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
