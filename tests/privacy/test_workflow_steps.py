@@ -198,6 +198,13 @@ class PrivacyCheck(Clone):
         r = self.check(self.pr_env("example-app[bot]"))
         self.assertEqual(r[0].returncode, 1, r[0].stdout + r[0].stderr)
 
+    def test_an_attributes_file_of_the_branch_can_not_hide_a_marker(self):
+        self.commit(".gitattributes", "* -diff\n")
+        self.commit("notes.txt", "a line privacy:allow\n")
+        r = self.check(self.pr_env("example-app[bot]"))
+        self.assertEqual(r[0].returncode, 1, r[0].stdout + r[0].stderr)
+        self.assertIn("privacy:allow marker", r[0].stdout)
+
     def test_no_default_branch_fails_for_an_app(self):
         self.commit("notes.txt", "nothing here\n")
         self.drop_default_branch()
@@ -257,6 +264,15 @@ class SecretScanConfig(Clone):
         self.marker_then_delete("gitleaks:allow")
         r, _ = self.config(self.pr_env("example-app[bot]"))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+
+    def test_an_attributes_file_of_the_branch_can_not_hide_a_marker_or_a_diff(self):
+        self.commit(".gitattributes", "* -diff\n")
+        self.commit("notes.txt", "token = x # gitleaks:allow\n")
+        r, _ = self.config(self.pr_env("example-app[bot]"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        # The scan after this step reads the clone with the same rule.
+        log = self.git(self.dir, "log", "-p", "-1", "--format=", "--", "notes.txt")
+        self.assertIn("+token = x", log)
 
     def test_no_default_branch_fails_for_an_app(self):
         self.drop_default_branch()

@@ -144,6 +144,12 @@ jobs:
             else
               rm -f .github/privacy-allow
             fi
+            # An attributes file of the branch ("* -diff") would show each file as
+            # binary to git, so to the marker search and to the scan. The info file
+            # of the clone wins over it and gives each path the default of git.
+            info="$(git rev-parse --git-path info)"
+            mkdir -p "$info"
+            printf '* !diff\n' >> "$info/attributes"
             # Each commit of the branch, and its tree: a marker that a later
             # commit deletes still hides a line of an earlier one.
             if { git log -p --no-merges --no-color --no-ext-diff -U0 --format= "${main_ref}..HEAD" -- .
