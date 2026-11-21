@@ -12,9 +12,17 @@ name: "Privacy"
 # or which term. Comments and reviews are privacy-text.yaml.
 # Exceptions: the caller's .github/privacy-allow (files only).
 #
-# Commit range: a PR checks base..head; a push to main checks before..HEAD
-# (HEAD~1..HEAD for a new branch); a v* tag checks the whole history it
-# ships.
+# Commit range: a PR checks base..head; a push checks before..HEAD (a new
+# branch: the default branch..HEAD, or HEAD~1..HEAD with no default branch
+# to compare); a v* tag checks the whole history it ships.
+#
+# The checker of the default branch: when the author of the PR or the
+# actor of the event is not the repository owner or Renovate, the branch
+# could change what checks it. Then the job runs bin/privacy-check and
+# .github/privacy-allow of the default branch on the files and commits of
+# the branch, and fails a line that the branch adds with the
+# "privacy:allow" marker (an exception is the owner's). The owner and
+# Renovate run the checker of the branch, as before.
 on:
   workflow_call:
     inputs:
@@ -54,14 +62,20 @@ jobs:
         env:
           PRIVACY_TERMS: ${{ secrets.PRIVACY_TERMS }}
           ALLOW_MISSING: ${{ inputs.allow-missing-terms }}
-          # A bot's PR body is third-party text (Renovate's release notes
-          # name upstream contributors), so only its title counts.
-          PRIVACY_EXTRA_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.user.type != 'Bot' && github.event.pull_request.body || '' }}
+          # Renovate's PR body is third-party text (its release notes name
+          # upstream contributors), so only its title counts. The body of
+          # every other author counts, a GitHub App's too.
+          PRIVACY_EXTRA_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.user.login != 'renovate[bot]' && github.event.pull_request.body || '' }}
           EVENT: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BEFORE_SHA: ${{ github.event.before }}
+          OWNER: ${{ github.repository_owner }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ACTOR: ${{ github.actor }}
         run: |
           if [ -z "${PRIVACY_TERMS}" ]; then
             if [ "$ALLOW_MISSING" = "true" ]; then
@@ -71,15 +85,59 @@ jobs:
             echo "::error::PRIVACY_TERMS is not available to this run"
             exit 1
           fi
+          default="refs/remotes/origin/${DEFAULT_BRANCH}"
+          git rev-parse -q --verify "$default" >/dev/null || default=""
           if [ "$EVENT" = "pull_request" ] || [ "$EVENT" = "pull_request_target" ]; then
             range="${BASE_SHA}..${HEAD_SHA}"
-          elif [ "$REF_TYPE" = "tag" ]; then
-            # A tag push has no useful "before"; check the whole history it ships.
-            range="HEAD"
-          elif [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            # A new branch: its tip commit (or the root commit of a new repo).
-            if git rev-parse -q --verify HEAD~1 >/dev/null; then range="HEAD~1..HEAD"; else range="HEAD"; fi
+            main_ref="${BASE_SHA}"
+            people="${AUTHOR} ${ACTOR}"
           else
-            range="${BEFORE_SHA}..HEAD"
+            if [ "$REF_TYPE" = "tag" ]; then
+              # A tag push has no useful "before"; check the whole history it ships.
+              range="HEAD"
+            elif [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+              # A new branch: what it adds to the default branch, else its
+              # tip commit (or the root commit of a new repo).
+              if [ -n "$default" ] && [ "$REF_NAME" != "$DEFAULT_BRANCH" ]; then
+                range="${default}..HEAD"
+              elif git rev-parse -q --verify HEAD~1 >/dev/null; then
+                range="HEAD~1..HEAD"
+              else
+                range="HEAD"
+              fi
+            else
+              range="${BEFORE_SHA}..HEAD"
+            fi
+            main_ref="${default:-HEAD}"
+            people="${ACTOR}"
           fi
-          bin/privacy-check --commits "$range"
+          trusted=true
+          for person in $people; do
+            [ "$person" = "$OWNER" ] || [ "$person" = "renovate[bot]" ] || trusted=false
+          done
+          checker=bin/privacy-check
+          marker=0
+          if [ "$trusted" != true ]; then
+            echo "Not the owner or Renovate: the checker and the allow file of ${main_ref} check this branch."
+            if ! git show "${main_ref}:bin/privacy-check" > "${RUNNER_TEMP}/privacy-check"; then
+              echo "::error::no bin/privacy-check on ${main_ref}"
+              exit 1
+            fi
+            chmod +x "${RUNNER_TEMP}/privacy-check"
+            checker="${RUNNER_TEMP}/privacy-check"
+            mkdir -p .github
+            if git cat-file -e "${main_ref}:.github/privacy-allow" 2>/dev/null; then
+              git show "${main_ref}:.github/privacy-allow" > .github/privacy-allow
+            else
+              rm -f .github/privacy-allow
+            fi
+            if git diff --no-color --no-ext-diff -U0 "${main_ref}...HEAD" -- . |
+                grep -a -v '^+++ ' | grep -a '^+' | grep -a -q -F 'privacy:allow'; then
+              echo "::error::the branch adds a line with the privacy:allow marker; an exception is the owner's"
+              marker=1
+            fi
+          fi
+          rc=0
+          "$checker" --commits "$range" || rc=$?
+          if [ "$rc" -eq 0 ] && [ "$marker" -ne 0 ]; then rc=1; fi
+          exit "$rc"

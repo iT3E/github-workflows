@@ -197,9 +197,17 @@ Job `privacy`. Caller grants `contents: read`. Secret `PRIVACY_TERMS`.
 
 Runs the caller's `bin/privacy-check` on every tracked file and path, on
 the commits the event adds (messages, author and committer identities),
-and on the PR title and body (a bot's PR body is skipped: it is
-third-party release notes). Commit range: a PR checks `base..head`, a
-push to `main` checks `before..HEAD`, a `v*` tag checks the whole history.
+and on the PR title and body (Renovate's PR body is skipped: it is
+third-party release notes; the body of every other author counts, a
+GitHub App's too). Commit range: a PR checks `base..head`, a push checks
+`before..HEAD` (a new branch: what it adds to the default branch), a `v*`
+tag checks the whole history.
+
+When the PR author or the actor of the event is not the repository owner
+or Renovate, the branch could change what checks it. Then the job runs
+`bin/privacy-check` and `.github/privacy-allow` of the default branch on
+the files and commits of the branch, and a line that the branch adds with
+the `privacy:allow` marker fails the job: an exception is the owner's.
 Hits print as `hit: <where>`, with every term in `<where>` replaced by
 `[term]`: never the matched text, the term or its place in the list. A secret that doesn't read as a list stops the check
 (exit 2), so it never passes without checking.
@@ -210,7 +218,9 @@ Hits print as `hit: <where>`, with every term in `<where>` replaced by
 
 Callers trigger it on `pull_request` (types `opened`, `synchronize`,
 `reopened`, `edited`) and pushes to `main` (plus `v*` tags for a repo that
-ships tags only).
+ships tags only). A repository where a GitHub App pushes branches also
+triggers it on pushes to the branches of the App, so a branch with no PR
+is checked too.
 
 ### `privacy-text.yaml`: the denylist on comments, reviews and issues
 
@@ -235,6 +245,11 @@ Job `betterleaks`. Caller grants `contents: read`. No secrets.
 betterleaks over the commits a PR adds (or a push to `main` adds), with
 the caller's config, redacted. The server-side twin of the pre-commit
 hook. It runs the release binary, checked against the release's checksums.
+When the PR author or the actor of the event is not the repository owner
+or Renovate, the scan reads the config and the ignore files
+(`.betterleaksignore`, `.gitleaksignore`) of the default branch, and a
+line that the branch adds with `betterleaks:allow` or `gitleaks:allow`
+fails the job.
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
