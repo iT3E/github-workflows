@@ -21,8 +21,11 @@ name: "Privacy"
 # could change what checks it. Then the job runs bin/privacy-check and
 # .github/privacy-allow of the default branch on the files and commits of
 # the branch, and fails a line that the branch adds with the
-# "privacy:allow" marker (an exception is the owner's). The owner and
-# Renovate run the checker of the branch, as before.
+# "privacy:allow" marker (an exception is the owner's), in any commit of
+# the branch or in its tree. Such a PR must have the default branch as its
+# base: a green check against another base could stay on the head after
+# a change of the base. The owner and Renovate run the checker of the
+# branch, as before.
 on:
   workflow_call:
     inputs:
@@ -70,6 +73,7 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BEFORE_SHA: ${{ github.event.before }}
@@ -87,9 +91,10 @@ jobs:
           fi
           default="refs/remotes/origin/${DEFAULT_BRANCH}"
           git rev-parse -q --verify "$default" >/dev/null || default=""
+          pr=false
           if [ "$EVENT" = "pull_request" ] || [ "$EVENT" = "pull_request_target" ]; then
+            pr=true
             range="${BASE_SHA}..${HEAD_SHA}"
-            main_ref="${BASE_SHA}"
             people="${AUTHOR} ${ACTOR}"
           else
             if [ "$REF_TYPE" = "tag" ]; then
@@ -108,7 +113,6 @@ jobs:
             else
               range="${BEFORE_SHA}..HEAD"
             fi
-            main_ref="${default:-HEAD}"
             people="${ACTOR}"
           fi
           trusted=true
@@ -118,6 +122,15 @@ jobs:
           checker=bin/privacy-check
           marker=0
           if [ "$trusted" != true ]; then
+            if [ -z "$default" ]; then
+              echo "::error::no ${DEFAULT_BRANCH} branch to read the checker from"
+              exit 1
+            fi
+            if [ "$pr" = true ] && [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+              echo "::error::the base of this PR is not ${DEFAULT_BRANCH}; change the base to ${DEFAULT_BRANCH} and push again"
+              exit 1
+            fi
+            main_ref="$default"
             echo "Not the owner or Renovate: the checker and the allow file of ${main_ref} check this branch."
             if ! git show "${main_ref}:bin/privacy-check" > "${RUNNER_TEMP}/privacy-check"; then
               echo "::error::no bin/privacy-check on ${main_ref}"
@@ -131,8 +144,11 @@ jobs:
             else
               rm -f .github/privacy-allow
             fi
-            if git diff --no-color --no-ext-diff -U0 "${main_ref}...HEAD" -- . |
-                grep -a -v '^+++ ' | grep -a '^+' | grep -a -q -F 'privacy:allow'; then
+            # Each commit of the branch, and its tree: a marker that a later
+            # commit deletes still hides a line of an earlier one.
+            if { git log -p --no-merges --no-color --no-ext-diff -U0 --format= "${main_ref}..HEAD" -- .
+                 git diff --no-color --no-ext-diff -U0 "${main_ref}...HEAD" -- .; } |
+                grep -a -v '^+++ ' | grep -a '^+' | grep -a -F 'privacy:allow' >/dev/null; then
               echo "::error::the branch adds a line with the privacy:allow marker; an exception is the owner's"
               marker=1
             fi

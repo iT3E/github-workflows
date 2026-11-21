@@ -83,14 +83,14 @@ class Clone(unittest.TestCase):
         self.git(self.dir, "add", "-A")
         self.git(self.dir, "commit", "-q", "-m", message)
 
-    def pr_env(self, author: str, actor: str | None = None) -> dict:
+    def pr_env(self, author: str, actor: str | None = None, base: str = "main") -> dict:
         return dict(EVENT="pull_request", REF_TYPE="branch", REF_NAME="1/merge", DEFAULT_BRANCH="main",
-                    BASE_SHA=self.base, HEAD_SHA=self.git(self.dir, "rev-parse", "HEAD").strip(),
+                    BASE_REF=base, BASE_SHA=self.base, HEAD_SHA=self.git(self.dir, "rev-parse", "HEAD").strip(),
                     BEFORE_SHA="", OWNER=OWNER, AUTHOR=author, ACTOR=actor or author)
 
     def push_env(self, actor: str, before: str = "0" * 40) -> dict:
         return dict(EVENT="push", REF_TYPE="branch", REF_NAME="agent/work", DEFAULT_BRANCH="main",
-                    BASE_SHA="", HEAD_SHA="", BEFORE_SHA=before, OWNER=OWNER, AUTHOR="", ACTOR=actor)
+                    BASE_REF="", BASE_SHA="", HEAD_SHA="", BEFORE_SHA=before, OWNER=OWNER, AUTHOR="", ACTOR=actor)
 
     def run_step(self, workflow: str, name: str, env: dict, **more: str):
         output = self.temp / "output"
@@ -100,6 +100,14 @@ class Clone(unittest.TestCase):
                            cwd=self.dir, env=e)
         outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
         return r, outputs
+
+    def marker_then_delete(self, marker: str):
+        """A commit that adds a line with the marker, and a commit that deletes it again."""
+        self.commit("notes.txt", f"token = x # {marker}\n")
+        self.commit("notes.txt", "nothing here\n")
+
+    def drop_default_branch(self):
+        self.git(self.dir, "update-ref", "-d", "refs/remotes/origin/main")
 
 
 class PrivacyCheck(Clone):
@@ -162,6 +170,41 @@ class PrivacyCheck(Clone):
         r = self.check(self.push_env("example-app[bot]", before=before))
         self.assertEqual(r[0].returncode, 1, r[0].stdout + r[0].stderr)
 
+    def test_a_pr_of_an_app_to_another_base_fails(self):
+        # The checks of base x stay green on the head when the base changes
+        # to main later, so a base that is not main fails at once.
+        self.commit("notes.txt", "nothing here\n")
+        r = self.check(self.pr_env("example-app[bot]", base="x"))
+        self.assertEqual(r[0].returncode, 1, r[0].stdout + r[0].stderr)
+        self.assertIn("the base of this PR is not main", r[0].stdout)
+
+    def test_a_pr_of_the_owner_to_another_base_passes(self):
+        self.commit("notes.txt", "nothing here\n")
+        r = self.check(self.pr_env(OWNER, base="x"))
+        self.assertEqual(r[0].returncode, 0, r[0].stdout + r[0].stderr)
+
+    def test_a_marker_that_a_later_commit_deletes_still_fails(self):
+        self.marker_then_delete("privacy:allow")
+        for env in (self.pr_env("example-app[bot]"), self.push_env("example-app[bot]")):
+            r = self.check(env)
+            self.assertEqual(r[0].returncode, 1, r[0].stdout + r[0].stderr)
+            self.assertIn("privacy:allow marker", r[0].stdout)
+
+    def test_a_marker_before_a_long_diff_still_fails(self):
+        # grep reads all of its input, so a long diff after the marker can
+        # not end the pipe early.
+        self.commit("big.txt", "".join(f"line {i}\n" for i in range(40000)))
+        self.commit("notes.txt", "a line privacy:allow\n")
+        r = self.check(self.pr_env("example-app[bot]"))
+        self.assertEqual(r[0].returncode, 1, r[0].stdout + r[0].stderr)
+
+    def test_no_default_branch_fails_for_an_app(self):
+        self.commit("notes.txt", "nothing here\n")
+        self.drop_default_branch()
+        r = self.check(self.push_env("example-app[bot]"))
+        self.assertEqual(r[0].returncode, 1, r[0].stdout + r[0].stderr)
+        self.assertIn("no main branch", r[0].stdout)
+
     def test_the_body_of_each_author_but_renovate_is_checked(self):
         text = (ROOT / ".github" / "workflows" / "privacy.yaml").read_text()
         self.assertIn("github.event.pull_request.user.login != 'renovate[bot]' && github.event.pull_request.body", text)
@@ -204,6 +247,44 @@ class SecretScanConfig(Clone):
         r, out = self.config(self.push_env("example-app[bot]"))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(Path(out["config"]).read_text(), "# the config of main\n")
+
+    def test_a_pr_of_an_app_to_another_base_fails(self):
+        r, _ = self.config(self.pr_env("example-app[bot]", base="x"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("the base of this PR is not main", r.stdout)
+
+    def test_a_marker_that_a_later_commit_deletes_still_fails(self):
+        self.marker_then_delete("gitleaks:allow")
+        r, _ = self.config(self.pr_env("example-app[bot]"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+
+    def test_no_default_branch_fails_for_an_app(self):
+        self.drop_default_branch()
+        r, _ = self.config(self.push_env("example-app[bot]"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+
+    def test_no_config_of_the_branch_reaches_the_scan(self):
+        # main has no config here, so the scan runs with no --config; a
+        # config file of the branch must not be in the folder either.
+        self.git(self.origin, "rm", "-q", ".betterleaks.toml")
+        self.git(self.origin, "commit", "-q", "-m", "no config")
+        self.git(self.dir, "fetch", "-q", "origin")
+        self.commit(".betterleaks.toml", "# a branch that allows everything\n")
+        self.commit(".gitleaks.toml", "# a branch that allows everything\n")
+        r, out = self.config(self.pr_env("example-app[bot]"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(out["config"], "")
+        self.assertFalse((self.dir / ".betterleaks.toml").exists())
+        self.assertFalse((self.dir / ".gitleaks.toml").exists())
+
+    def test_a_new_branch_scans_each_commit_it_adds(self):
+        self.commit("a.txt", "one\n")
+        self.commit("b.txt", "two\n")
+        r, out = self.run_step("secret-scan.yaml", "Determine commit range", self.push_env("example-app[bot]"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(out["log_opts"], "--no-merges refs/remotes/origin/main..HEAD")
+        r, out = self.run_step("secret-scan.yaml", "Determine commit range", dict(self.push_env("x"), REF_TYPE="tag"))
+        self.assertEqual(out["log_opts"], "-1")
 
     def test_the_scan_uses_the_config_of_the_step(self):
         text = (ROOT / ".github" / "workflows" / "secret-scan.yaml").read_text()

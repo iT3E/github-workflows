@@ -207,7 +207,11 @@ When the PR author or the actor of the event is not the repository owner
 or Renovate, the branch could change what checks it. Then the job runs
 `bin/privacy-check` and `.github/privacy-allow` of the default branch on
 the files and commits of the branch, and a line that the branch adds with
-the `privacy:allow` marker fails the job: an exception is the owner's.
+the `privacy:allow` marker, in any of its commits or in its tree, fails
+the job: an exception is the owner's. Such a PR must have the default
+branch as its base, or the job fails: a green check against another base
+could stay on the head after a change of the base. With no default
+branch to read from, the job fails too.
 Hits print as `hit: <where>`, with every term in `<where>` replaced by
 `[term]`: never the matched text, the term or its place in the list. A secret that doesn't read as a list stops the check
 (exit 2), so it never passes without checking.
@@ -242,14 +246,17 @@ never stands in for the `privacy` check on a PR head.
 
 Job `betterleaks`. Caller grants `contents: read`. No secrets.
 
-betterleaks over the commits a PR adds (or a push to `main` adds), with
-the caller's config, redacted. The server-side twin of the pre-commit
+betterleaks over the commits a PR adds (or a push adds; a new branch:
+each commit it adds to the default branch), with the caller's config,
+redacted. The server-side twin of the pre-commit
 hook. It runs the release binary, checked against the release's checksums.
 When the PR author or the actor of the event is not the repository owner
 or Renovate, the scan reads the config and the ignore files
 (`.betterleaksignore`, `.gitleaksignore`) of the default branch, and a
-line that the branch adds with `betterleaks:allow` or `gitleaks:allow`
-fails the job.
+line that the branch adds with `betterleaks:allow` or `gitleaks:allow`,
+in any of its commits or in its tree, fails the job. No config file of
+the branch stays in the folder. As for the privacy check, the base of
+such a PR must be the default branch.
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
