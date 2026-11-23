@@ -3,6 +3,12 @@
 Notable changes to this repository, newest first. Each PR adds a Changie
 fragment under `.changes/unreleased/`; merging to `main` releases them.
 
+## v1.10.1 - 2026-11-23
+
+### Fixed
+
+* Dependency updates: feat(github-action): update astral-sh/setup-uv action to v10.4.0 (#42)
+
 ## v1.10.0 - 2026-11-21
 
 ### Changed
